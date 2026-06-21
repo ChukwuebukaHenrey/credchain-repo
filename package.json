@@ -1,0 +1,26 @@
+{
+  "name": "credchain",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CredChain — a blockchain-powered universal credential network built on Solana. Multi-service monorepo (backend, frontend, ai-cv-engine, ai-insights-engine).",
+  "author": "Ebukah · Tony · Zhavia · Kuro",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently -k -n backend,frontend,cv-engine,insights -c blue,green,magenta,yellow \"npm:dev:backend\" \"npm:dev:frontend\" \"npm:dev:cv\" \"npm:dev:insights\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:cv": "cd ai-cv-engine && venv\\Scripts\\python.exe -m uvicorn src.api:app --host 0.0.0.0 --port 8001 --reload",
+    "dev:insights": "cd ai-insights-engine && venv\\Scripts\\python.exe -m uvicorn src.api:app --host 0.0.0.0 --port 8002 --reload",
+    "install:backend": "cd backend && npm install",
+    "install:frontend": "cd frontend && npm install",
+    "install:all": "npm install && npm run install:backend && npm run install:frontend",
+    "install:python": "pip install -r ai-cv-engine/requirements.txt && pip install -r ai-insights-engine/requirements.txt"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "nodemon": "^3.1.4"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
