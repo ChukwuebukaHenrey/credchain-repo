@@ -1,173 +1,184 @@
 // ─────────────────────────────────────────────────────────────
-// CredChain Frontend — shared portal chrome (white + blue design system)
-// Frosted top nav with brand + identity, a sticky left sidebar with an active
-// pill indicator, and a horizontally-scrolling mobile tab strip. Portals pass
-// `navItems`, `activeTab` and `onTabChange` to drive navigation; `children`
-// renders the active tab content (capped to a comfortable reading width).
+// CredChain — shared portal shell (design-system v2)
+// Same props API as before: { title, subtitle, navItems, activeTab,
+// onTabChange, credScore, children }. navItems: { key, label, icon, divider }.
+// Adds: light/dark, collapsible sidebar, mobile drawer, theme toggle,
+// avatar menu, animated active pill + page transitions.
 // ─────────────────────────────────────────────────────────────
 
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Menu, X, LogOut, Settings, ChevronLeft } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import Avatar from '../components/ui/Avatar';
+import Badge from '../components/ui/Badge';
+import ThemeToggle from '../components/ui/ThemeToggle';
 
-const ROLE_BADGE = {
-  student: 'bg-blue-50 text-blue-700 border-blue-200',
-  employer: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  issuer: 'bg-amber-50 text-amber-700 border-amber-200',
-};
+const ROLE_TONE = { student: 'brand', employer: 'violet', issuer: 'warning', admin: 'danger' };
 
-export default function PortalLayout({
-  title,
-  subtitle,
-  children,
-  navItems = [],
-  activeTab,
-  onTabChange,
-  credScore,
-}) {
+function NavList({ items, activeTab, onTabChange, collapsed }) {
+  return (
+    <nav className="relative flex flex-col gap-1">
+      {items.map((item, idx) =>
+        item.divider ? (
+          <div key={`divider-${idx}`} className="my-2 h-px bg-border-subtle" />
+        ) : (
+          <button
+            key={item.key}
+            type="button"
+            title={collapsed ? item.label : undefined}
+            onClick={() => onTabChange?.(item.key)}
+            className={[
+              'group relative flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition-colors',
+              collapsed ? 'justify-center' : '',
+              item.key === activeTab
+                ? 'bg-brand-soft font-semibold text-brand-700 dark:text-brand-300'
+                : 'text-content-secondary hover:bg-bg-sunken hover:text-content-primary',
+            ].join(' ')}
+          >
+            {item.key === activeTab && (
+              <motion.span layoutId="nav-active-bar" className="absolute left-0 h-5 w-0.5 rounded-r bg-brand-600" />
+            )}
+            <span className="text-base leading-none">{item.icon}</span>
+            {!collapsed && <span className="truncate">{item.label}</span>}
+          </button>
+        )
+      )}
+    </nav>
+  );
+}
+
+export default function PortalLayout({ title, subtitle, children, navItems = [], activeTab, onTabChange, credScore }) {
   const { user, role, logout } = useAuth();
   const navigate = useNavigate();
+  const [collapsed, setCollapsed] = useState(false);
+  const [drawer, setDrawer] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   function handleLogout() {
     logout();
     navigate('/login', { replace: true });
   }
 
-  const hasNav = navItems.length > 0;
+  const hasNav = navItems.filter((i) => !i.divider).length > 0;
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50">
-      {/* Frosted top nav */}
-      <header className="sticky top-0 z-40 border-b border-blue-100 bg-white/80 shadow-sm backdrop-blur-md">
-        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between px-4 sm:px-6">
-          <div className="flex items-center">
-            <span className="text-xl font-extrabold tracking-tight">
-              <span className="text-blue-600">Cred</span>
-              <span className="text-gray-900">Chain</span>
-            </span>
-            {role && (
-              <>
-                <span className="mx-3 h-4 w-px bg-gray-200" />
-                <span
-                  className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold capitalize ${ROLE_BADGE[role] || 'bg-gray-100 text-gray-600 border-gray-200'}`}
-                >
-                  {role}
-                </span>
-              </>
+    <div className="flex min-h-screen flex-col bg-bg-base">
+      {/* Topbar */}
+      <header className="sticky top-0 z-40 border-b border-border-subtle bg-bg-elevated/85 backdrop-blur-lg">
+        <div className="flex h-16 items-center justify-between px-4 sm:px-6">
+          <div className="flex items-center gap-3">
+            {hasNav && (
+              <button onClick={() => setDrawer(true)} className="rounded-lg p-2 text-content-secondary hover:bg-bg-sunken lg:hidden">
+                <Menu className="h-5 w-5" />
+              </button>
             )}
+            <Link to="/" className="text-xl font-black tracking-tight">
+              <span className="text-brand-600">Cred</span>
+              <span className="text-content-primary">Chain</span>
+            </Link>
+            {role && <Badge tone={ROLE_TONE[role] || 'neutral'} variant="soft" className="hidden capitalize sm:inline-flex">{role}</Badge>}
             {role === 'student' && credScore ? (
-              <>
-                <span className="mx-3 h-4 w-px bg-gray-200" />
-                <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-0.5 text-xs font-bold text-blue-700">
-                  CredScore {credScore}
-                </span>
-              </>
+              <Badge tone="success" variant="soft" className="hidden md:inline-flex">CredScore {credScore}</Badge>
             ) : null}
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="hidden text-right sm:block">
-              <p className="text-sm font-medium leading-tight text-gray-900">
-                {user?.name || user?.email || 'CredChain user'}
-              </p>
-              {user?.credchainId && (
-                <p className="font-mono text-[13px] leading-tight text-blue-600">{user.credchainId}</p>
-              )}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <ThemeToggle />
+            <div className="relative">
+              <button onClick={() => setMenuOpen((o) => !o)} className="flex items-center gap-2 rounded-lg p-1 pr-2 transition-colors hover:bg-bg-sunken">
+                <Avatar name={user?.name || user?.email || 'User'} size="sm" />
+                <span className="hidden text-left sm:block">
+                  <span className="block text-sm font-semibold leading-tight text-content-primary">{user?.name || 'CredChain user'}</span>
+                  {user?.credchainId && <span className="block font-mono text-[11px] leading-tight text-brand-600">{user.credchainId}</span>}
+                </span>
+              </button>
+              <AnimatePresence>
+                {menuOpen && (
+                  <>
+                    <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+                    <motion.div
+                      initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-xl border border-border-subtle bg-bg-elevated p-1.5 shadow-lg"
+                    >
+                      <div className="px-3 py-2">
+                        <p className="truncate text-sm font-semibold text-content-primary">{user?.email || user?.name}</p>
+                        {user?.credchainId && <p className="truncate font-mono text-[11px] text-content-muted">{user.credchainId}</p>}
+                      </div>
+                      <div className="my-1 h-px bg-border-subtle" />
+                      <Link to="/admin" onClick={() => setMenuOpen(false)} className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-content-secondary hover:bg-bg-sunken hover:text-content-primary">
+                        <Settings className="h-4 w-4" /> Admin
+                      </Link>
+                      <button onClick={handleLogout} className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-danger-500 hover:bg-danger-500/10">
+                        <LogOut className="h-4 w-4" /> Log out
+                      </button>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
             </div>
-            <Link
-              to="/admin"
-              title="Platform admin (restricted)"
-              className="hidden text-sm text-gray-400 transition-colors duration-150 hover:text-gray-600 sm:inline"
-            >
-              ⚙ Admin
-            </Link>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm transition-all duration-150 hover:bg-gray-50 active:scale-[0.97]"
-            >
-              Log out
-            </button>
           </div>
         </div>
       </header>
 
-      {/* Mobile tab strip */}
-      {hasNav && (
-        <nav className="sticky top-14 z-30 block border-b border-gray-200 bg-white sm:hidden">
-          <div className="scrollbar-none flex gap-1 overflow-x-auto px-4 py-1">
-            {navItems
-              .filter((item) => !item.divider)
-              .map((item) => {
-                const active = item.key === activeTab;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => onTabChange?.(item.key)}
-                    className={[
-                      'shrink-0 whitespace-nowrap px-3 py-2.5 text-sm font-medium transition-colors',
-                      active
-                        ? '-mb-px border-b-2 border-blue-600 text-blue-600'
-                        : 'text-gray-500 hover:text-gray-700',
-                    ].join(' ')}
-                  >
-                    <span className="mr-1.5">{item.icon}</span>
-                    {item.label}
-                  </button>
-                );
-              })}
-          </div>
-        </nav>
-      )}
-
-      <div className="mx-auto flex w-full max-w-7xl flex-1">
+      <div className="flex flex-1">
         {/* Desktop sidebar */}
         {hasNav && (
-          <aside className="sticky top-14 hidden h-[calc(100vh-3.5rem)] w-56 shrink-0 flex-col overflow-y-auto border-r border-gray-200 bg-white px-3 pt-5 sm:flex">
-            <nav className="relative flex flex-col gap-1">
-              {navItems.map((item, idx) =>
-                item.divider ? (
-                  <div key={`divider-${idx}`} className="my-2 h-px bg-gray-100" />
-                ) : (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => onTabChange?.(item.key)}
-                    className={[
-                      'relative flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors duration-150',
-                      item.key === activeTab
-                        ? 'bg-blue-50 font-semibold text-blue-700'
-                        : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900',
-                    ].join(' ')}
-                  >
-                    {item.key === activeTab && (
-                      <span className="absolute left-0 h-5 w-0.5 rounded-r bg-blue-600" />
-                    )}
-                    <span className="text-base leading-none">{item.icon}</span>
-                    {item.label}
-                  </button>
-                )
-              )}
-            </nav>
-
-            {user?.credchainId && (
-              <div className="mb-4 mt-auto break-all rounded-xl bg-blue-50 p-3 text-[13px] font-mono leading-snug text-blue-700">
-                {user.credchainId}
-              </div>
-            )}
+          <aside className={`sticky top-16 hidden h-[calc(100vh-4rem)] shrink-0 flex-col border-r border-border-subtle bg-bg-elevated px-3 pt-5 transition-[width] duration-200 lg:flex ${collapsed ? 'w-[72px]' : 'w-64'}`}>
+            <NavList items={navItems} activeTab={activeTab} onTabChange={onTabChange} collapsed={collapsed} />
+            <button
+              onClick={() => setCollapsed((c) => !c)}
+              className="mb-4 mt-auto flex items-center justify-center gap-2 rounded-lg border border-border-subtle py-2 text-xs font-medium text-content-muted hover:bg-bg-sunken"
+            >
+              <ChevronLeft className={`h-4 w-4 transition-transform ${collapsed ? 'rotate-180' : ''}`} />
+              {!collapsed && 'Collapse'}
+            </button>
           </aside>
         )}
 
-        {/* Main content */}
-        <main className="min-w-0 flex-1 px-6 py-8">
-          <div className="mx-auto max-w-4xl">
+        {/* Mobile drawer */}
+        <AnimatePresence>
+          {drawer && hasNav && (
+            <div className="fixed inset-0 z-50 lg:hidden">
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setDrawer(false)} className="absolute inset-0 bg-slate-950/50 backdrop-blur-sm" />
+              <motion.aside
+                initial={{ x: -300 }} animate={{ x: 0 }} exit={{ x: -300 }} transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+                className="absolute left-0 top-0 h-full w-72 overflow-y-auto bg-bg-elevated px-3 pt-4"
+              >
+                <div className="mb-4 flex items-center justify-between px-2">
+                  <span className="text-lg font-black"><span className="text-brand-600">Cred</span>Chain</span>
+                  <button onClick={() => setDrawer(false)} className="rounded-lg p-2 hover:bg-bg-sunken"><X className="h-5 w-5" /></button>
+                </div>
+                <NavList items={navItems} activeTab={activeTab} onTabChange={(k) => { onTabChange?.(k); setDrawer(false); }} collapsed={false} />
+              </motion.aside>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Main */}
+        <main className="min-w-0 flex-1 px-5 py-8 sm:px-8">
+          <div className="mx-auto max-w-6xl">
             {(title || subtitle) && (
               <div className="mb-6">
-                {title && <h1 className="text-2xl font-bold tracking-tight text-gray-900">{title}</h1>}
-                {subtitle && <p className="mt-1 text-sm leading-relaxed text-gray-500">{subtitle}</p>}
+                {title && <h1 className="font-display text-2xl font-extrabold tracking-tight text-content-primary">{title}</h1>}
+                {subtitle && <p className="mt-1 text-sm leading-relaxed text-content-secondary">{subtitle}</p>}
               </div>
             )}
-            {children}
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
+              >
+                {children}
+              </motion.div>
+            </AnimatePresence>
           </div>
         </main>
       </div>
