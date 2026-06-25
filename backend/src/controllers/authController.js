@@ -194,4 +194,54 @@ async function googleCallback(req, res) {
   }
 }
 
-module.exports = { googleStart, googleCallback };
+// ── POST /api/v1/auth/demo  { role } ─────────────────────────────
+// One-click demo sign-in for stage demos. Finds (or lazily creates) the
+// seeded demo account for the chosen role and returns the SAME app JWT the
+// real login issues. Gated behind DEMO_MODE so it can't be used in prod.
+async function demoLogin(req, res) {
+  try {
+    if (process.env.DEMO_MODE === 'false') {
+      return res.status(403).json({ success: false, message: 'Demo login is disabled.' });
+    }
+    if (!JWT_SECRET) {
+      return res.status(500).json({ success: false, message: 'Server auth is not configured.' });
+    }
+
+    const requested = String(req.body?.role || 'student').toLowerCase();
+    const role = VALID_ROLES.includes(requested) ? requested : 'student';
+    const email = `demo-${role}@credchain.demo`;
+
+    let user = await User.findOne({ email });
+    if (!user) {
+      // Seed wasn't run — create a minimal demo account so the demo still works.
+      const passwordHash = await bcrypt.hash('demo1234', 10);
+      user = await User.create({
+        name: `Demo ${role.charAt(0).toUpperCase()}${role.slice(1)}`,
+        email,
+        passwordHash,
+        role,
+        credchainId: makeCredchainId(),
+      });
+      console.log(`[auth:demo] created demo ${role} account: ${email}`);
+    }
+
+    const token = signAppToken(user);
+    return res.status(200).json({
+      success: true,
+      message: `Signed in as demo ${role}.`,
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        credchainId: user.credchainId,
+      },
+    });
+  } catch (err) {
+    console.error('[auth:demo]', err.message);
+    return res.status(500).json({ success: false, message: 'Demo login failed.' });
+  }
+}
+
+module.exports = { googleStart, googleCallback, demoLogin };

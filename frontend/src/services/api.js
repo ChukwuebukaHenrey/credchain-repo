@@ -86,6 +86,17 @@ export async function login(payload) {
   }
 }
 
+// POST /api/v1/auth/demo — one-click demo sign-in (DEMO_MODE only)
+export async function demoLogin(role = 'student') {
+  try {
+    const { data } = await api.post('/api/v1/auth/demo', { role });
+    return data;
+  } catch (error) {
+    logError('demoLogin', error);
+    throw error;
+  }
+}
+
 // ── USERS / STUDENTS ─────────────────────────────────────────
 
 // GET /api/student/:id

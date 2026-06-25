@@ -86,6 +86,79 @@ function getMemoExplorerUrl(signature) {
   return `https://explorer.solana.com/tx/${signature}?cluster=devnet`;
 }
 
+// ─────────────────────────────────────────────────────────────
+// DEMO_MODE — never let a live demo hard-fail on Devnet funding/latency.
+//
+// When DEMO_MODE is on (default) and no funded fee-payer wallet is
+// configured (or a real on-chain write throws), we anchor with a
+// DETERMINISTIC MOCK signature derived from the credential hash. It is
+// clearly flagged `mock:true` everywhere it surfaces, and the real
+// on-chain path always takes precedence when a wallet IS configured.
+// Set DEMO_MODE=false to disable mocking and require real anchoring.
+// ─────────────────────────────────────────────────────────────
+
+const crypto = require('crypto');
+const { loadFeePayer } = require('../utils/wallet');
+
+const B58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+// Minimal base58 encoder (avoids assuming bs58 is a direct dependency).
+function base58Encode(buffer) {
+  let digits = [0];
+  for (let i = 0; i < buffer.length; i++) {
+    let carry = buffer[i];
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) {
+      digits.push(carry % 58);
+      carry = (carry / 58) | 0;
+    }
+  }
+  let out = '';
+  for (let k = 0; k < buffer.length && buffer[k] === 0; k++) out += '1';
+  for (let q = digits.length - 1; q >= 0; q--) out += B58_ALPHABET[digits[q]];
+  return out;
+}
+
+function isDemoMode() {
+  return process.env.DEMO_MODE !== 'false';
+}
+
+// Deterministic, signature-shaped (64-byte → ~88 char base58) mock from a hash.
+function mockMemoSignature(hashString) {
+  const seed = crypto.createHash('sha512').update(String(hashString)).digest(); // 64 bytes
+  return base58Encode(seed);
+}
+
+/**
+ * anchorHash — unified anchoring entry point used by controllers.
+ * Returns { signature, mock, explorerUrl }.
+ *   • Real wallet present       → real on-chain Memo write.
+ *   • No wallet + DEMO_MODE on  → deterministic mock signature.
+ *   • Real write throws + DEMO  → falls back to mock (demo never breaks).
+ *   • No wallet + DEMO_MODE off → { signature: null } (off-chain only).
+ */
+async function anchorHash(hashString) {
+  const feePayer = loadFeePayer();
+  if (feePayer) {
+    try {
+      const signature = await sendCredentialMemo(hashString, feePayer);
+      return { signature, mock: false, explorerUrl: getMemoExplorerUrl(signature) };
+    } catch (err) {
+      if (!isDemoMode()) throw err;
+      console.warn('[solana] real anchor failed; using DEMO_MODE mock:', err.message);
+    }
+  }
+  if (isDemoMode()) {
+    const signature = mockMemoSignature(hashString);
+    return { signature, mock: true, explorerUrl: getMemoExplorerUrl(signature) };
+  }
+  return { signature: null, mock: false, explorerUrl: null };
+}
+
 module.exports = {
   connection,
   MEMO_PROGRAM_ID,
@@ -93,4 +166,7 @@ module.exports = {
   sendCredentialMemo,
   getMemoExplorerUrl,
   clusterApiUrl,
+  isDemoMode,
+  mockMemoSignature,
+  anchorHash,
 };

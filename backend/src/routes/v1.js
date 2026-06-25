@@ -60,6 +60,9 @@ router.get('/health', (req, res) => {
 router.get('/auth/google', auth.googleStart);
 router.get('/auth/google/callback', auth.googleCallback);
 
+// One-click demo sign-in (DEMO_MODE only).
+router.post('/auth/demo', auth.demoLogin);
+
 // ── System 5: PUBLIC live-status badge ───────────────────────
 router.get('/badge/:credentialId', badge.getBadge);
 

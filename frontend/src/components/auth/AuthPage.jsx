@@ -8,12 +8,14 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { ShieldCheck, Globe, Zap, AlertCircle, ArrowRight } from 'lucide-react';
-import { login as apiLogin, register as apiRegister } from '../../services/api';
+import { login as apiLogin, register as apiRegister, demoLogin as apiDemoLogin } from '../../services/api';
 import { useAuth, PORTAL_HOME } from '../../context/AuthContext';
 import GoogleSignInButton from './GoogleSignInButton';
 import { Input } from '../ui/Input';
 import Button from '../ui/Button';
 import ThemeToggle from '../ui/ThemeToggle';
+import { useToast } from '../ui/Toast';
+import { Play } from 'lucide-react';
 
 const ROLES = [
   { key: 'student', label: 'Student' },
@@ -31,11 +33,28 @@ export default function AuthPage({ mode = 'login' }) {
   const isRegister = mode === 'register';
   const navigate = useNavigate();
   const { login } = useAuth();
+  const toast = useToast();
 
   const [role, setRole] = useState('student');
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [loading, setLoading] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(null);
   const [error, setError] = useState(null);
+
+  async function handleDemo(demoRole) {
+    setDemoLoading(demoRole);
+    setError(null);
+    try {
+      const data = await apiDemoLogin(demoRole);
+      if (!data?.token) throw new Error('No token returned.');
+      const resolved = login(data.token, data.user);
+      toast.success(`Signed in as demo ${demoRole}`);
+      navigate(PORTAL_HOME[resolved?.role] || PORTAL_HOME[demoRole] || '/student', { replace: true });
+    } catch (err) {
+      setError('Demo login unavailable. Make sure the backend is running and seeded (npm run seed).');
+      setDemoLoading(null);
+    }
+  }
 
   function handleChange(e) {
     const { name, value } = e.target;
@@ -131,6 +150,28 @@ export default function AuthPage({ mode = 'login' }) {
                 </button>
               );
             })}
+          </div>
+
+          {/* One-click demo logins (DEMO_MODE) */}
+          <div className="mt-5 rounded-xl border border-dashed border-brand-300 bg-brand-soft/60 p-3">
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-brand-600">
+              <Play className="h-3.5 w-3.5" /> Instant demo — no signup
+            </p>
+            <div className="grid grid-cols-3 gap-2">
+              {['student', 'issuer', 'employer'].map((r) => (
+                <Button
+                  key={r}
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  loading={demoLoading === r}
+                  onClick={() => handleDemo(r)}
+                  className="capitalize"
+                >
+                  {r}
+                </Button>
+              ))}
+            </div>
           </div>
 
           <div className="mt-5">

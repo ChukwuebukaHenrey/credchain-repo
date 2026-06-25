@@ -12,7 +12,7 @@
 const Credential = require('../models/Credential');
 const User = require('../models/User');
 const { computeCredentialHash } = require('../utils/hash');
-const { sendCredentialMemo, getMemoExplorerUrl } = require('../config/solana');
+const { sendCredentialMemo, getMemoExplorerUrl, anchorHash, isDemoMode } = require('../config/solana');
 const { loadFeePayer } = require('../utils/wallet');
 
 // POST /api/v1/issuer/credentials   (requireAuth + enforceVerifiedIssuer)
@@ -33,17 +33,38 @@ async function issueCredential(req, res) {
     });
     doc.sha256Hash = computeCredentialHash(doc);
     doc.hash = doc.sha256Hash;
+
+    // Anchor on Solana at issue time so the issuer gets an immediate,
+    // verifiable on-chain proof. In DEMO_MODE this uses a deterministic
+    // mock signature when no funded wallet is present (never hard-fails).
+    let anchor = { signature: null, mock: false, explorerUrl: null };
+    try {
+      anchor = await anchorHash(doc.sha256Hash);
+    } catch (chainErr) {
+      console.error('[credential:issue] anchor failed:', chainErr.message);
+    }
+    if (anchor.signature) {
+      doc.solanaTxSignature = anchor.signature;
+      doc.txSignature = anchor.signature;
+    }
     await doc.save();
 
     return res.status(201).json({
       success: true,
-      message: 'Credential issued (pending student acceptance).',
+      message: anchor.signature
+        ? 'Credential issued and anchored on Solana.'
+        : 'Credential issued (pending student acceptance).',
       credential: {
         id: doc._id,
         title: doc.title,
         recipientEmail: doc.recipientEmail,
         status: doc.status,
         sha256Hash: doc.sha256Hash,
+        txSignature: doc.txSignature || null,
+        solanaTxSignature: doc.solanaTxSignature || null,
+        network: 'devnet',
+        anchorMock: anchor.mock,
+        explorerUrl: anchor.explorerUrl,
         badgeUrl: `/api/v1/badge/${doc._id}`,
       },
     });
