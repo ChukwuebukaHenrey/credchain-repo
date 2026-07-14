@@ -23,6 +23,8 @@ interface ProfileCredential {
   txHash?: string;
   verificationId?: string;
   network?: string;
+  /** Backend-provided explorer URL (already carries the correct cluster). */
+  explorerUrl?: string;
 }
 
 interface CandidateProfile {
@@ -59,7 +61,7 @@ export default function PublicProfile() {
             issueDate: "June 15, 2026",
             txHash: "5f2a9c1d8b3e4a7f2c9b1d8e3a7f2c9b1d8e3a7f",
             verificationId: "CC-2026-FUTO-0892",
-            network: "Solana Mainnet",
+            network: "Solana Devnet",
           },
         ],
       },
@@ -77,7 +79,7 @@ export default function PublicProfile() {
             issueDate: "June 18, 2026",
             txHash: "3d7b2e4af1c98a2d1e5b7c8f9a0d3e2b1c4f5a6b",
             verificationId: "CC-2026-FUTO-0914",
-            network: "Solana Mainnet",
+            network: "Solana Devnet",
           },
         ],
       },
@@ -95,7 +97,7 @@ export default function PublicProfile() {
             issueDate: "May 28, 2026",
             txHash: "8a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b",
             verificationId: "CC-2026-STAN-0412",
-            network: "Solana Mainnet",
+            network: "Solana Devnet",
           },
           {
             id: "cred-4",
@@ -105,7 +107,7 @@ export default function PublicProfile() {
             issueDate: "June 10, 2027",
             txHash: "9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a",
             verificationId: "CC-2027-STAN-0891",
-            network: "Solana Mainnet",
+            network: "Solana Devnet",
           },
         ],
       },
@@ -172,7 +174,7 @@ export default function PublicProfile() {
             issueDate: "June 20, 2026",
             txHash: "7c3aed9b1d8e3a7f2c9b1d8e3a7f2c9b1d8e3a7f",
             verificationId: `CC-2026-GEN-${candidateId.slice(0, 4).toUpperCase()}`,
-            network: "Solana Mainnet",
+            network: "Solana Devnet",
           },
         ],
       });
@@ -338,7 +340,7 @@ export default function PublicProfile() {
                           Solana transaction hash
                         </span>
                         <span className="text-[10px] font-mono text-hash-green border border-hash-green/30 px-1.5 py-0.5 rounded-sm">
-                          {cred.network || "Solana Mainnet"}
+                          {cred.network || "Solana Devnet"}
                         </span>
                       </div>
 
@@ -347,7 +349,7 @@ export default function PublicProfile() {
                           {cred.txHash}
                         </span>
                         <a
-                          href={`https://explorer.solana.com/tx/${cred.txHash}?cluster=mainnet`}
+                          href={cred.explorerUrl || `https://explorer.solana.com/tx/${cred.txHash}?cluster=devnet`}
                           target="_blank"
                           rel="noopener noreferrer"
                           className="self-end sm:self-auto text-xs font-mono font-semibold inline-flex items-center gap-1.5 shrink-0 border border-border-main hover:border-role-candidate text-txt-primary hover:text-role-candidate px-2.5 py-1 rounded-sm transition-colors"
@@ -392,7 +394,7 @@ export default function PublicProfile() {
           <span>CredChain cryptographic proof engine</span>
         </div>
         <span className="hidden sm:inline text-txt-muted">·</span>
-        <span>All academic claims verified immutable on Solana Mainnet</span>
+        <span>All academic claims verified immutable on Solana Devnet</span>
       </footer>
     </div>
   );

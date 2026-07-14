@@ -17,6 +17,7 @@ import {
   Wand2,
   Plus,
   Send,
+  Signal,
 } from "lucide-react";
 import DashboardShell, { NavGroup } from "../components/DashboardShell";
 
@@ -192,7 +193,7 @@ export default function IssuerDashboard() {
       onLogout={handleLogout}
       topbarRightExtra={
         <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border-main text-txt-secondary text-[11px] font-mono">
-          <span className="w-1.5 h-1.5 rounded-full bg-hash-green animate-pulse-custom" />
+          <Signal className="w-2.5 h-2.5 text-hash-green animate-pulse-custom" />
           Solana Mainnet
         </span>
       }

@@ -1,15 +1,50 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Play, RefreshCw, Check } from "lucide-react";
+import { Play, ShieldCheck, Check, Radio } from "lucide-react";
 import FadeIn from "./FadeIn";
-import NetworkTopologyBg from "./NetworkTopologyBg";
 
 export default function Hero() {
   const navigate = useNavigate();
 
+  // Option A — landing is a designed dark composition (like solana.com, which has
+  // no light landing). The arc background + white headline only read correctly on
+  // dark, so we lock the marketing page to dark regardless of the global toggle.
+  // The toggle still governs the authenticated dashboards, where light is designed.
+  useEffect(() => {
+    const html = document.documentElement;
+    const prev = html.getAttribute("data-theme");
+    html.setAttribute("data-theme", "dark");
+    return () => {
+      if (prev) html.setAttribute("data-theme", prev);
+    };
+  }, []);
+
   return (
-    <section className="relative min-h-[90vh] bg-bg-base pt-32 pb-16 flex items-center overflow-hidden">
-      {/* Network topology infrastructure texture (4% opacity, no glow) */}
-      <NetworkTopologyBg />
+    <section className="relative min-h-[92vh] bg-bg-base pt-32 pb-16 flex items-center overflow-hidden">
+      {/* Full-bleed flowing-wave backdrop (sol.png). Spans edge-to-edge across the
+          whole viewport width — the previous arc image was concentrated on the
+          right, which left the left side looking empty. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 w-screen bg-no-repeat bg-cover bg-center"
+        style={{ backgroundImage: "url('/sol-waves.png')" }}
+      />
+      {/* Left-weighted dark overlay keeps the headline column high-contrast while
+          letting the waves breathe on the right. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0"
+        style={{
+          background:
+            "linear-gradient(90deg, var(--bg-base) 0%, color-mix(in srgb, var(--bg-base) 80%, transparent) 35%, color-mix(in srgb, var(--bg-base) 40%, transparent) 70%, transparent 100%)",
+        }}
+      />
+      {/* Bottom fade so the section blends into the next block */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 h-32"
+        style={{ background: "linear-gradient(180deg, transparent, var(--bg-base))" }}
+      />
 
       <div className="relative w-full max-w-[1200px] mx-auto px-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
@@ -18,19 +53,19 @@ export default function Hero() {
             <FadeIn>
               {/* Section eyebrow — left border rule, mono uppercase */}
               <div className="border-l-2 border-brand-purple pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-6">
-                CREDENTIAL VERIFICATION PLATFORM
+                VERIFIED SKILLS · ANCHORED ON SOLANA
               </div>
 
               <h1 className="font-display text-txt-primary tracking-tight scale-3xl md:scale-4xl font-bold leading-none mb-6">
-                Verified Credentials.
+                Prove your skills.
                 <br />
-                <span className="text-role-candidate">Instant Trust.</span>
+                <span className="text-role-candidate">Get hired.</span>
                 <br />
-                Zero Fraud.
+                Start earning.
               </h1>
 
-              <p className="font-sans text-txt-secondary scale-base max-w-[480px] mb-8 leading-relaxed">
-                CredChain connects institutions, candidates, and employers on a single blockchain-anchored verification layer. No email chains. No waiting rooms. No forgery.
+              <p className="font-sans text-txt-secondary scale-base max-w-[500px] mb-8 leading-relaxed">
+                CredChain turns your real skills into tamper-proof, blockchain-verified credentials employers trust — then connects you to paid bounties. From verified, to hired, to earning.
               </p>
 
               <div className="flex flex-wrap items-center gap-4 mb-12">
@@ -64,8 +99,8 @@ export default function Hero() {
           <div className="lg:col-span-5 flex justify-center lg:justify-end">
             <FadeIn delay={150}>
               <ProofBlockCard
-                txHash="sol_tx_92Kx3dE8_v_z8Pq7w"
-                blockNumber="#182,901,321"
+                txSignature="4Qy3…tX9pKf2v"
+                slot="182,901,321"
                 credentialType="B.Eng in Computer Engineering"
                 candidate="Emeka Obi"
                 issuer="Federal University of Technology, Owerri"
@@ -80,8 +115,8 @@ export default function Hero() {
 }
 
 interface ProofBlockCardProps {
-  txHash: string;
-  blockNumber: string;
+  txSignature: string;
+  slot: string;
   credentialType: string;
   candidate: string;
   issuer: string;
@@ -89,35 +124,35 @@ interface ProofBlockCardProps {
 }
 
 function ProofBlockCard({
-  txHash,
-  blockNumber,
+  txSignature,
+  slot,
   credentialType,
   candidate,
   issuer,
   issuedDate,
 }: ProofBlockCardProps) {
-  const rows: Array<[string, React.ReactNode, boolean]> = [
-    ["TRANSACTION HASH", <span className="font-mono text-[13px] text-txt-primary select-all break-all">{txHash}</span>, true],
-    ["BLOCKCHAIN NETWORK", <span className="font-sans text-[13px] text-txt-primary font-medium">Solana Proof Anchor</span>, false],
-    ["BLOCK NUMBER", <span className="font-mono text-[13px] text-txt-primary font-medium">{blockNumber}</span>, false],
-    ["CREDENTIAL TYPE", <span className="font-sans text-[13px] text-txt-primary font-medium">{credentialType}</span>, false],
-    ["CANDIDATE", <span className="font-sans text-[13px] text-txt-primary font-medium">{candidate}</span>, false],
-    ["AUTHORIZED ISSUER", <span className="font-sans text-[13px] text-txt-primary font-medium">{issuer}</span>, false],
-    ["ISSUED DATE", <span className="font-sans text-[13px] text-txt-primary font-medium">{issuedDate}</span>, false],
+  const rows: Array<[string, React.ReactNode]> = [
+    ["TX SIGNATURE", <span className="font-mono text-[13px] text-txt-primary select-all break-all">{txSignature}</span>],
+    ["SLOT", <span className="font-mono text-[13px] text-txt-primary font-medium">{slot}</span>],
+    ["CREDENTIAL TYPE", <span className="font-sans text-[13px] text-txt-primary font-medium">{credentialType}</span>],
+    ["CANDIDATE", <span className="font-sans text-[13px] text-txt-primary font-medium">{candidate}</span>],
+    ["AUTHORIZED ISSUER", <span className="font-sans text-[13px] text-txt-primary font-medium">{issuer}</span>],
+    ["ISSUED DATE", <span className="font-sans text-[13px] text-txt-primary font-medium">{issuedDate}</span>],
   ];
 
   return (
-    <div className="bg-bg-surface border border-border-main rounded-lg p-6 w-full max-w-[480px] transition-all duration-200 hover:border-border-strong">
+    // Clean glass card — subtle border + soft shadow (no heavy purple glow/ring).
+    <div className="bg-bg-surface/80 backdrop-blur-xl border border-border-main rounded-xl p-6 w-full max-w-[480px] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.5)] transition-colors duration-200 hover:border-border-strong">
       {/* Header */}
       <div className="flex items-center justify-between pb-5 border-b border-border-main mb-5">
         <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-hash-green animate-pulse-custom" aria-hidden />
+          <Radio className="w-3 h-3 text-hash-green animate-pulse-custom" aria-hidden />
           <span className="font-mono text-[11px] text-txt-muted uppercase tracking-wider font-semibold">
-            LIVE TRANSACTION FEED
+            ON-CHAIN CREDENTIAL PROOF
           </span>
         </div>
         <div className="border border-border-main rounded-sm px-2 py-1 text-[11px] font-mono text-role-candidate">
-          Solana Proof Anchor
+          Solana Devnet
         </div>
       </div>
 
@@ -135,7 +170,7 @@ function ProofBlockCard({
         {/* Authenticity Result */}
         <div className="grid grid-cols-12 gap-2 items-center pt-2">
           <div className="col-span-5 font-mono text-[10px] text-txt-muted uppercase tracking-wider">
-            AUTHENTICITY RESULT
+            AUTHENTICITY
           </div>
           <div className="col-span-7 font-sans text-[13px] text-hash-green font-bold flex items-center gap-1.5">
             <Check className="w-4 h-4" strokeWidth={2.5} />
@@ -147,11 +182,11 @@ function ProofBlockCard({
       {/* Footer */}
       <div className="flex items-center justify-between mt-6 pt-5 border-t border-border-main">
         <div className="flex items-center gap-1.5 font-mono text-[11px] text-txt-muted">
-          <RefreshCw className="w-3.5 h-3.5" />
-          <span>Live Syncing</span>
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span>Memo-anchored</span>
         </div>
         <div className="font-mono text-[11px] text-hash-green">
-          STAMP: SHA256CRYPT // OK
+          HASH: SHA-256
         </div>
       </div>
     </div>

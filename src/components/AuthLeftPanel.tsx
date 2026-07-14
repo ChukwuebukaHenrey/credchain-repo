@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Check, ArrowLeft } from "lucide-react";
 import Logo from "./Logo";
-import authSidebarImg from "../assets/images/auth_sidebar_1783426705561.jpg";
+import authSidebarImg from "../assets/images/Duck.png";
 
 export interface RoleInfo {
   id: "candidate" | "issuer" | "verifier";
@@ -64,10 +64,10 @@ export default function AuthLeftPanel({ role, currentStep, totalSteps }: AuthLef
   const spec = ROLE_SPECS[role] || ROLE_SPECS.candidate;
 
   return (
-    <div className="w-[52%] h-full flex flex-col p-4 sm:p-5 lg:p-6 relative select-none bg-transparent">
-      {/* Inner container with rounded corners and overflow hidden, creating the padded image card look */}
-      <div className="w-full h-full rounded-[24px] overflow-hidden relative flex flex-col justify-between p-8 lg:p-10 xl:p-12 select-none">
-        {/* Background infrastructure image - fully visible edge-to-edge inside the padded rounded boundaries */}
+    <div className="w-1/2 h-full relative select-none">
+      {/* Image fills the entire half edge-to-edge (matches monorepo). No padded card. */}
+      <div className="w-full h-full overflow-hidden relative flex flex-col justify-between p-10 lg:p-12 xl:p-14 select-none">
+        {/* Background infrastructure image - edge-to-edge */}
         <img
           src={authSidebarImg}
           alt=""

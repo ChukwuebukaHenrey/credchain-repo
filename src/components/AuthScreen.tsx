@@ -53,7 +53,7 @@ export default function AuthScreen({
 
            <AuthLeftPanel role={role} currentStep={currentStep} totalSteps={totalSteps} />
 
-          <div className="w-[48%] bg-bg-base p-6 lg:p-10 xl:p-12 flex flex-col justify-center text-left relative overflow-y-auto h-full">
+          <div className="w-1/2 bg-bg-base p-6 lg:p-10 xl:p-12 flex flex-col justify-center text-left relative overflow-y-auto h-full">
             <div className="w-full max-w-md mx-auto space-y-3 lg:space-y-4">
               {children}
             </div>

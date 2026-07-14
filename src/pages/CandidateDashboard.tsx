@@ -34,8 +34,12 @@ import {
   ShieldCheck,
   Camera,
   ArrowRight,
+  Wifi,
+  Signal,
 } from "lucide-react";
 import DashboardShell, { NavGroup } from "../components/DashboardShell";
+import EarnTab from "../components/candidate/EarnTab";
+import TrustTab from "../components/candidate/TrustTab";
 import { getCandidate, getNotifications, getQRCode, buildResume, getWhitelistedInstitutions } from "../services/api";
 import { getTheme, toggleTheme, Theme } from "../services/theme";
 
@@ -44,6 +48,8 @@ type TabType =
   | "credentials"
   | "request"
   | "resume"
+  | "earn"
+  | "trust"
   | "portfolio"
   | "qr"
   | "settings"
@@ -53,10 +59,12 @@ interface Credential {
   id: string;
   title: string;
   issuer: string;
-  status: "verified" | "pending" | "rejected";
+  status: "verified" | "pending" | "rejected" | "revoked";
   hash: string;
   date: string;
   reason?: string;
+  revokedReason?: string;
+  dispute?: { status: string; reason: string } | null;
 }
 
 export default function CandidateDashboard() {
@@ -234,6 +242,7 @@ export default function CandidateDashboard() {
     { id: "cred-4", title: "Internship Letter — Frontend Dev", issuer: "Accenture Nigeria · 2025", status: "pending", hash: "Awaiting institution signature", date: "Nov 2025" },
     { id: "cred-5", title: "100 Level Academic Transcript", issuer: candidate?.institution || "Federal University of Technology, Owerri", status: "verified", hash: "0x5e2b0f9c3d7a", date: "Feb 2026" },
     { id: "cred-6", title: "NYSC Discharge Certificate", issuer: "National Youth Service Corps", status: "rejected", hash: "Verification declined", date: "Jan 2026", reason: "Matric/service number did not exactly match official institution records." },
+    { id: "cred-7", title: "AWS Cloud Practitioner", issuer: "Amazon Web Services", status: "revoked", hash: "0x8c1f4b7a2d9e", date: "Aug 2025", revokedReason: "Issuer flagged a certificate-ID mismatch during a routine audit." },
   ];
 
   const filteredCreds = sampleCreds.filter((c) => {
@@ -276,12 +285,14 @@ export default function CandidateDashboard() {
         { id: "credentials", label: "My Credentials", icon: <GraduationCap className="w-4 h-4" strokeWidth={1.75} />, badge: sampleCreds.length },
         { id: "request", label: "Request Credential", icon: <Send className="w-4 h-4" strokeWidth={1.75} /> },
         { id: "resume", label: "AI Resume Builder", icon: <Sparkles className="w-4 h-4" strokeWidth={1.75} /> },
+        { id: "earn", label: "Earn", icon: <Trophy className="w-4 h-4" strokeWidth={1.75} /> },
       ],
     },
     {
       label: "PROFILE",
       items: [
         { id: "portfolio", label: "My Portfolio", icon: <UserCircle className="w-4 h-4" strokeWidth={1.75} /> },
+        { id: "trust", label: "Trust & Disputes", icon: <ShieldCheck className="w-4 h-4" strokeWidth={1.75} /> },
         { id: "qr", label: "Share QR Code", icon: <QrCode className="w-4 h-4" strokeWidth={1.75} /> },
       ],
     },
@@ -369,7 +380,7 @@ export default function CandidateDashboard() {
                 }}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-md border border-border-main hover:border-role-candidate bg-bg-surface text-txt-primary font-mono text-xs cursor-pointer transition-colors self-start md:self-center"
               >
-                <span className="w-2 h-2 rounded-full bg-hash-green animate-pulse-custom" aria-hidden />
+                <Wifi className="w-3 h-3 text-hash-green animate-pulse-custom" aria-hidden />
                 <span className="text-role-candidate">
                   {walletCopied ? "Address copied" : "0x4f3a…b92c"}
                 </span>
@@ -1143,6 +1154,17 @@ export default function CandidateDashboard() {
           </div>
         )}
 
+        {activeTab === "earn" && <EarnTab />}
+
+        {activeTab === "trust" && (
+          <TrustTab
+            candidateId={candidate?.id || "demo-candidate"}
+            credentials={candidate?.credentials || sampleCreds}
+            sandboxSkills={candidate?.sandboxSkills || []}
+            attestedSkills={candidate?.attestedSkills || []}
+          />
+        )}
+
         {activeTab === "qr" && (
           <div className="max-w-3xl mx-auto space-y-6">
             <div className="text-center">
@@ -1254,7 +1276,7 @@ export default function CandidateDashboard() {
                       {portfolioName}
                     </h3>
                     <span className="text-[10px] font-mono text-hash-green inline-flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-hash-green animate-pulse-custom" />
+                      <Signal className="w-2.5 h-2.5 text-hash-green animate-pulse-custom" />
                       Verified Solana Anchor
                     </span>
                   </div>
