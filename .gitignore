@@ -60,3 +60,6 @@ Thumbs.db
 
 # Local deck-build scratch (not part of the app)
 scratch/
+
+# Leftover root scratch script (hardcoded 3rd-party API key) — never ship.
+/index.js

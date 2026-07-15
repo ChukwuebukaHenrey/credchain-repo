@@ -29,16 +29,21 @@ const app = express();
 // from (say) http://127.0.0.1:3000 get silently CORS-blocked.
 const STATIC_ALLOWED = new Set([
   CLIENT_ORIGIN,
+  // Monorepo frontend dev server.
   'http://localhost:3000',
   'http://127.0.0.1:3000',
+  // CredChain-Repo-v2 (cc-v2) Vite dev server — default port 5173.
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
 ]);
 
 function isAllowedOrigin(origin) {
   // No Origin header → same-origin / curl / server-to-server: allow.
   if (!origin) return true;
   if (STATIC_ALLOWED.has(origin)) return true;
-  // Any LAN IPv4 host on the frontend port (e.g. http://192.168.1.5:3000).
-  if (/^http:\/\/\d{1,3}(\.\d{1,3}){3}:3000$/.test(origin)) return true;
+  // Any LAN IPv4 host on either frontend dev port (3000 = monorepo, 5173 = cc-v2),
+  // e.g. http://192.168.1.5:3000 or http://192.168.1.5:5173.
+  if (/^http:\/\/\d{1,3}(\.\d{1,3}){3}:(3000|5173)$/.test(origin)) return true;
   return false;
 }
 

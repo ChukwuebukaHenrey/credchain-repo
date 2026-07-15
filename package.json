@@ -19,7 +19,8 @@
     "install:backend": "cd backend && npm install",
     "install:frontend": "cd frontend && npm install",
     "install:all": "npm install && npm run install:backend && npm run install:frontend",
-    "install:python": "pip install -r ai-cv-engine/requirements.txt && pip install -r ai-insights-engine/requirements.txt"
+    "install:python": "pip install -r ai-cv-engine/requirements.txt && pip install -r ai-insights-engine/requirements.txt",
+    "type": "module"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
@@ -27,5 +28,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "openai": "^6.46.0"
   }
 }
