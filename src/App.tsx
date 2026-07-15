@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { AuthProvider, useAuth } from "./context/AuthContext";
+import ProtectedRoute from "./components/ProtectedRoute";
 import Navbar from "./components/Navbar";
 import Hero from "./components/Hero";
 import HowItWorks from "./components/HowItWorks";
@@ -41,24 +43,93 @@ function Landing() {
   );
 }
 
+function AppRoutes() {
+  const { isAuthenticated, role } = useAuth();
+  
+  return (
+    <Routes>
+      <Route path="/" element={<Landing />} />
+      <Route path="/role" element={<RoleSelection />} />
+      <Route path="/signup/candidate" element={<SignupCandidate />} />
+      <Route path="/signup/issuer" element={<SignupIssuer />} />
+      <Route path="/signup/verifier" element={<SignupVerifier />} />
+      <Route path="/login" element={<Login />} />
+      
+      {/* Protected Dashboards */}
+      <Route 
+        path="/dashboard" 
+        element={
+          <ProtectedRoute allow="candidate">
+            <CandidateDashboard />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/dashboard/candidate" 
+        element={
+          <ProtectedRoute allow="candidate">
+            <CandidateDashboard />
+          </ProtectedRoute>
+        } 
+      />
+      
+      <Route 
+        path="/issuer" 
+        element={
+          <ProtectedRoute allow="issuer">
+            <IssuerDashboard />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/dashboard/issuer" 
+        element={
+          <ProtectedRoute allow="issuer">
+            <IssuerDashboard />
+          </ProtectedRoute>
+        } 
+      />
+      
+      <Route 
+        path="/verifier" 
+        element={
+          <ProtectedRoute allow="verifier">
+            <VerifierDashboard />
+          </ProtectedRoute>
+        } 
+      />
+      <Route 
+        path="/dashboard/verifier" 
+        element={
+          <ProtectedRoute allow="verifier">
+            <VerifierDashboard />
+          </ProtectedRoute>
+        } 
+      />
+      
+      <Route path="/verify/:candidateId" element={<PublicProfile />} />
+      
+      {/* Fallback */}
+      <Route 
+        path="*" 
+        element={
+          isAuthenticated ? (
+            <Navigate to={role === 'candidate' ? '/dashboard' : role === 'issuer' ? '/issuer' : '/verifier'} replace />
+          ) : (
+            <Navigate to="/" replace />
+          )
+        } 
+      />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/role" element={<RoleSelection />} />
-        <Route path="/signup/candidate" element={<SignupCandidate />} />
-        <Route path="/signup/issuer" element={<SignupIssuer />} />
-        <Route path="/signup/verifier" element={<SignupVerifier />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/dashboard" element={<CandidateDashboard />} />
-        <Route path="/dashboard/candidate" element={<CandidateDashboard />} />
-        <Route path="/issuer" element={<IssuerDashboard />} />
-        <Route path="/dashboard/issuer" element={<IssuerDashboard />} />
-        <Route path="/verifier" element={<VerifierDashboard />} />
-        <Route path="/dashboard/verifier" element={<VerifierDashboard />} />
-        <Route path="/verify/:candidateId" element={<PublicProfile />} />
-      </Routes>
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter>
+        <AppRoutes />
+      </BrowserRouter>
+    </AuthProvider>
   );
 }

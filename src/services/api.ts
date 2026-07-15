@@ -273,6 +273,13 @@ export async function signup(payload: any) {
   return res;
 }
 
+export async function demoLogin(role: string = 'candidate') {
+  if (USE_MOCK) {
+    return login(role === 'candidate' ? 'emeka@demo.io' : role === 'issuer' ? 'registrar@futo.ng' : 'audit@acme.com');
+  }
+  return post("/v1/auth/demo", { role });
+}
+
 export async function login(email: string, password?: string) {
   if (USE_MOCK) {
     const storedUserStr = localStorage.getItem("cc_user");
