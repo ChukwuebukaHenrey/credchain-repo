@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useMemo, useEffect } from 'react';
 import { User, Role } from '../types';
 import { toUiRole } from '../services/api';
+import { connectSocket, disconnectSocket } from '../services/socket';
 
 const TOKEN_KEY = 'cc_token';
 const USER_KEY = 'cc_user';
@@ -72,13 +73,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       localStorage.setItem(TOKEN_KEY, newToken);
       localStorage.setItem(USER_KEY, JSON.stringify(resolved));
       localStorage.setItem('credchain_role', resolved.role); // Maintain legacy key for compatibility if needed
-      
+
       setToken(newToken);
       setUser(resolved);
+      // Join the per-user socket room so chat / bulk-progress events arrive live.
+      if (resolved.id) {
+        try { connectSocket(resolved.id); } catch { /* socket is best-effort */ }
+      }
     }
   }, []);
 
+  // Reconnect the socket on page refresh for an already-authenticated session.
+  useEffect(() => {
+    if (token && user?.id) {
+      try { connectSocket(user.id); } catch { /* socket is best-effort */ }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const logout = useCallback(() => {
+    disconnectSocket();
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem('credchain_role');

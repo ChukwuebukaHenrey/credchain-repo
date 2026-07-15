@@ -2,36 +2,50 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, Clock, Eye, EyeOff } from "lucide-react";
 import AuthScreen from "../components/AuthScreen";
+import * as api from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 export default function SignupVerifier() {
+  const { login: authLogin } = useAuth();
   const [submitted, setSubmitted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const totalSteps = 2;
 
   const [fullName, setFullName] = useState("");
   const [companyName, setCompanyName] = useState("");
   const [workEmail, setWorkEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [jobTitle, setJobTitle] = useState("");
 
   const [companyWebsite, setCompanyWebsite] = useState("");
   const [reason, setReason] = useState("hiring");
 
   const handleNextStep = () => {
-    if (step === 1 && (!fullName || !companyName || !workEmail)) {
-      alert("Please fill in Full Name, Company Name, and Work Email.");
+    if (step === 1 && (!fullName || !companyName || !workEmail || !password)) {
+      alert("Please fill in Full Name, Company Name, Work Email, and Password.");
       return;
     }
     if (step < totalSteps) setStep(step + 1);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    localStorage.setItem(
-      "cc_user",
-      JSON.stringify({ fullName, companyName, workEmail, jobTitle, companyWebsite, reason, role: "verifier" })
-    );
-    localStorage.setItem("credchain_role", "verifier");
-    setSubmitted(true);
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // Real registration — api.ts maps role verifier -> employer at the boundary.
+      const res = await api.signup({ name: fullName, email: workEmail, password, role: "verifier" });
+      if (res?.success === false || !res?.token) throw new Error(res?.message || "Registration failed");
+      authLogin(res.token, res.user);
+      setSubmitted(true);
+    } catch (err: any) {
+      setError(err?.message || "Registration failed — is the backend running?");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const stepTitle = step === 1 ? "Professional identity" : "Organization details";
@@ -76,6 +90,7 @@ export default function SignupVerifier() {
               </div>
               <Field label="COMPANY NAME *" value={companyName} onChange={setCompanyName} placeholder="Acme Global Technologies" required />
               <Field label="WORK EMAIL *" type="email" value={workEmail} onChange={setWorkEmail} placeholder="s.jenkins@acmeglobal.com" required />
+              <Field label="PASSWORD *" type="password" value={password} onChange={setPassword} placeholder="••••••••" required />
             </div>
           )}
 
@@ -97,12 +112,18 @@ export default function SignupVerifier() {
           )}
         </div>
 
+        {error && (
+          <div className="text-xs font-mono text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2 my-3">
+            {error}
+          </div>
+        )}
+
         <StepNav
           step={step}
           totalSteps={totalSteps}
           onBack={() => setStep(step - 1)}
           onNext={handleNextStep}
-          submitLabel="Submit organization anchor"
+          submitLabel={busy ? "Submitting…" : "Submit organization anchor"}
         />
       </form>
     </AuthScreen>

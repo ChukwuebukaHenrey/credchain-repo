@@ -2,9 +2,14 @@ import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import AuthScreen from "../components/AuthScreen";
 import { StepHeader, StepNav, Field, SelectField, SuccessPanel } from "./SignupVerifier";
+import * as api from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 export default function SignupIssuer() {
+  const { login: authLogin } = useAuth();
   const [submitted, setSubmitted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const totalSteps = 3;
 
@@ -20,6 +25,7 @@ export default function SignupIssuer() {
   const [contactName, setContactName] = useState("");
   const [contactTitle, setContactTitle] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  const [password, setPassword] = useState("");
 
   // Step 3
   const [accreditationNum, setAccreditationNum] = useState("");
@@ -30,34 +36,32 @@ export default function SignupIssuer() {
       alert("Please fill in Institution Name, Website, and Email Domain.");
       return;
     }
-    if (step === 2 && (!country || !contactName || !contactEmail)) {
-      alert("Please fill in Country, Contact Name, and Contact Email.");
+    if (step === 2 && (!country || !contactName || !contactEmail || !password)) {
+      alert("Please fill in Country, Contact Name, Contact Email, and Password.");
       return;
     }
     if (step < totalSteps) setStep(step + 1);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    localStorage.setItem(
-      "cc_user",
-      JSON.stringify({
-        instName,
-        website,
-        emailDomain,
-        instType,
-        country,
-        state,
-        contactName,
-        contactTitle,
-        contactEmail,
-        accreditationNum,
-        supportingNote,
-        role: "issuer",
-      })
-    );
-    localStorage.setItem("credchain_role", "issuer");
-    setSubmitted(true);
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // Real registration (account creation). Institutional verification itself
+      // runs later through the issuer funnel on the Issuer Desk (domain -> KYC -> registry).
+      const res = await api.signup({ name: instName, email: contactEmail, password, role: "issuer" });
+      if (res?.success === false || !res?.token) throw new Error(res?.message || "Registration failed");
+      authLogin(res.token, res.user);
+      // Kick off step one of the verification funnel with the chosen institution type.
+      try { await api.registerIssuerStepOne(instType); } catch { /* funnel can be started from the dashboard */ }
+      setSubmitted(true);
+    } catch (err: any) {
+      setError(err?.message || "Registration failed — is the backend running?");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const stepTitle =
@@ -134,6 +138,7 @@ export default function SignupIssuer() {
                 placeholder="registrar@futo.edu.ng"
                 required
               />
+              <Field label="PASSWORD *" type="password" value={password} onChange={setPassword} placeholder="••••••••" required />
             </div>
           )}
 
@@ -163,6 +168,12 @@ export default function SignupIssuer() {
             </div>
           )}
         </div>
+
+        {error && (
+          <div className="text-xs font-mono text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2 my-3">
+            {error}
+          </div>
+        )}
 
         <StepNav
           step={step}

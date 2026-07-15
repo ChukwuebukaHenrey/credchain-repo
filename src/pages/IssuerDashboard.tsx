@@ -20,6 +20,8 @@ import {
   Signal,
 } from "lucide-react";
 import DashboardShell, { NavGroup } from "../components/DashboardShell";
+import { useAuth } from "../context/AuthContext";
+import { disconnectSocket } from "../services/socket";
 
 interface RequestItem {
   id: string;
@@ -35,6 +37,7 @@ type Tab = "requests" | "history" | "batch" | "qr" | "settings" | "help";
 type FilterTab = "all" | "pending" | "approved" | "denied";
 
 export default function IssuerDashboard() {
+  const { user: authUser, logout } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>("requests");
   const [searchQuery, setSearchQuery] = useState("");
@@ -106,7 +109,8 @@ export default function IssuerDashboard() {
     name.trim().split(/\s+/).slice(0, 2).map((w) => w[0]?.toUpperCase() || "").join("");
 
   const handleLogout = () => {
-    localStorage.removeItem("credchain_role");
+    disconnectSocket();
+    logout();
     navigate("/login");
   };
 

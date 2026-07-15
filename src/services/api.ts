@@ -5,7 +5,9 @@
 //   • USE_MOCK=false → real backend. The presenter sets VITE_USE_MOCK=false in
 //     their .env; if the live stack ever hiccups, flip it back for an instant
 //     safe fallback — no code change, no redeploy.
-const USE_MOCK = import.meta.env.VITE_USE_MOCK !== "false";
+// LIVE by default now that the backend is wired end-to-end. Set VITE_USE_MOCK=true
+// for backend-less design work.
+const USE_MOCK = import.meta.env.VITE_USE_MOCK === "true";
 
 // In dev, calls go to "/api" and Vite proxies them to the backend (same-origin,
 // no CORS). In prod, set VITE_API_BASE_URL to the deployed backend, e.g.
@@ -157,8 +159,10 @@ async function get(endpoint: string) {
   const res = await fetch(`${BASE_URL}${endpoint}`, {
     headers: authHeaders(),
   });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data?.message || `Request failed (${res.status})`), { status: res.status, data });
   // Incoming: map backend roles (student/employer) back to UI roles (candidate/verifier).
-  return mapRolesDeep(await res.json(), BACKEND_TO_UI_ROLE);
+  return mapRolesDeep(data, BACKEND_TO_UI_ROLE);
 }
 
 async function post(endpoint: string, body: any) {
@@ -168,7 +172,9 @@ async function post(endpoint: string, body: any) {
     // Outgoing: map UI roles (candidate/verifier) to backend roles (student/employer).
     body: JSON.stringify(mapRolesDeep(body, UI_TO_BACKEND_ROLE)),
   });
-  return mapRolesDeep(await res.json(), BACKEND_TO_UI_ROLE);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data?.message || `Request failed (${res.status})`), { status: res.status, data });
+  return mapRolesDeep(data, BACKEND_TO_UI_ROLE);
 }
 
 // Attach the JWT the backend issued at login, if present. cc-v2 stores it under
@@ -217,7 +223,30 @@ export async function getRequests(_id: string)         { return mock.requests } 
 export async function getIssuerRequests(_id: string)   { return mock.issuerRequests }  // MOCK-ONLY: no backend route
 export async function getPublicProfile(id: string)     { return USE_MOCK ? mock.publicProfile     : get(`/student/profile/${id}`).then((r: any) => r?.profile || r) }
 export async function getQRCode(id: string, scope: string = "all") { return mock.qr }  // MOCK-ONLY: QR is generated client-side
-export async function buildResume(id: string, prompt: string)  { return USE_MOCK ? mock.resume    : post(`/v1/ai/generate-verified-cv`, { candidateId: id, prompt }) }
+// Backend returns a PDF blob (not JSON) from /v1/ai/generate-verified-cv. On live,
+// we download it and return a marker the Resume tab can detect.
+export async function buildResume(id: string, prompt: string) {
+  if (USE_MOCK) return mock.resume;
+  const res = await fetch(`${BASE_URL}/v1/ai/generate-verified-cv`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ userId: id }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(data?.message || `CV generation failed (${res.status})`), { status: res.status });
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "credchain-verified-cv.pdf";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  return { downloaded: true, resume_html: "<p>Your verified CV (PDF) has been downloaded.</p>" };
+}
 
 // ── Earn / Bounties (backend: GET /api/v1/bounties → { success, bounties }) ──
 export async function getBounties() {
@@ -277,7 +306,10 @@ export async function demoLogin(role: string = 'candidate') {
   if (USE_MOCK) {
     return login(role === 'candidate' ? 'emeka@demo.io' : role === 'issuer' ? 'registrar@futo.ng' : 'audit@acme.com');
   }
-  return post("/v1/auth/demo", { role });
+  // Real backend: POST /api/v1/auth/demo { role } → { success, user, token }.
+  const res = await post("/v1/auth/demo", { role });
+  if (res?.token) localStorage.setItem("cc_token", res.token);
+  return res;
 }
 
 export async function login(email: string, password?: string) {
@@ -367,5 +399,233 @@ export async function getWhitelistedInstitutions(): Promise<string[]> {
   const res = await get(`/v1/issuers/directory`);
   const list = res?.issuers || res || [];
   return Array.isArray(list) ? list.map((i: any) => (typeof i === "string" ? i : i.name)) : WHITELISTED_INSTITUTIONS_MOCK;
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// FULL BACKEND SURFACE (added for live integration; mirrors monorepo
+// frontend/src/services/api.js against backend/src/routes/{api,v1}.js).
+// All mock branches keep the app demoable without the backend.
+// ═════════════════════════════════════════════════════════════════════════
+
+const ok = (extra: any = {}) => Promise.resolve({ success: true, mock: true, ...extra });
+
+// ── Student portfolio (two-tier ledger: verified + sandbox + attested) ──
+export async function getStudentPortfolio(userId: string) {
+  if (USE_MOCK) return { success: true, portfolio: { verifiedSkills: mock.credentials, sandboxSkills: mock.candidate.sandboxSkills, attestedSkills: mock.candidate.attestedSkills, credScore: { total: mock.candidate.credScore }, highestTier: mock.candidate.tier } };
+  return get(`/v1/student/${userId}/portfolio`);
+}
+export async function addSandboxSkill(skillName: string, source?: string, link?: string) {
+  if (USE_MOCK) return ok({ skill: { skillName, source, link } });
+  return post(`/v1/student/sandbox-skill`, { skillName, source, link });
+}
+export async function rejectCredential(credentialId: string) {
+  if (USE_MOCK) return ok({ credential: { id: credentialId, status: "rejected" } });
+  return post(`/credential/reject/${credentialId}`, {});
+}
+export async function disputeAttestation(studentId: string, attestedIndex: number, reason: string) {
+  if (USE_MOCK) return ok({ message: "Attestation dispute filed." });
+  return post(`/v1/attested/${studentId}/${attestedIndex}/dispute`, { reason });
+}
+export async function updateStudentProfile(payload: any) {
+  if (USE_MOCK) return ok();
+  // Real backend: PUT /api/student/profile { id, bio?, skills?, links? }.
+  const res = await fetch(`${BASE_URL}/student/profile`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data?.message || `Request failed (${res.status})`), { status: res.status });
+  return data;
+}
+export async function requestInstitution(institutionName: string, website?: string, note?: string) {
+  if (USE_MOCK) return ok({ message: "Request logged — we notify you when they join." });
+  return post(`/v1/issuers/directory/request`, { institutionName, website, note });
+}
+
+// ── Bounty lifecycle (student side) ──
+export async function applyToBounty(bountyId: string, message?: string) {
+  if (USE_MOCK) return ok({ application: { id: "app-" + bountyId, status: "applied" } });
+  return post(`/v1/bounties/${bountyId}/apply`, { message });
+}
+export async function getMyApplications() {
+  if (USE_MOCK) return { success: true, applications: [] };
+  return get(`/v1/bounties/applications/mine`);
+}
+export async function respondToDirectTask(bountyId: string, decision: "accept" | "decline") {
+  if (USE_MOCK) return ok();
+  return post(`/v1/bounties/${bountyId}/respond`, { decision });
+}
+export async function submitDelivery(bountyId: string, appId: string, text: string, links: string[] = []) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/bounties/${bountyId}/applications/${appId}/deliver`, { text, links });
+}
+export async function rateCounterparty(bountyId: string, appId: string, stars: number, comment?: string) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/bounties/${bountyId}/applications/${appId}/rate`, { stars, comment });
+}
+export async function submitToGlobalBounty(bountyId: string, text: string, links: string[] = []) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/bounties/${bountyId}/submit`, { text, links });
+}
+export async function listGlobalBounties() {
+  if (USE_MOCK) return { success: true, bounties: mock.bounties.filter((b: any) => b.bountyType === "global") };
+  return get(`/v1/bounties/global`);
+}
+export async function getLeaderboard() {
+  if (USE_MOCK) return { success: true, leaderboard: [] };
+  return get(`/v1/bounties/leaderboard`);
+}
+
+// ── Bounty lifecycle (employer/verifier side) ──
+export async function createBounty(payload: any) {
+  if (USE_MOCK) return ok({ bounty: { id: "bounty-" + Date.now(), ...payload, status: "open" } });
+  return post(`/v1/bounties`, payload);
+}
+export async function getMyBounties() {
+  if (USE_MOCK) return { success: true, bounties: mock.bounties };
+  return get(`/v1/bounties/mine`);
+}
+export async function createDirectTask(payload: any) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/bounties/direct`, payload);
+}
+export async function createGlobalBounty(payload: any) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/bounties/global`, payload);
+}
+export async function getBountyApplicants(bountyId: string) {
+  if (USE_MOCK) return { success: true, applications: [] };
+  return get(`/v1/bounties/${bountyId}/applications`);
+}
+export async function acceptApplicant(bountyId: string, appId: string) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/bounties/${bountyId}/applications/${appId}/accept`, {});
+}
+export async function confirmDelivery(bountyId: string, appId: string) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/bounties/${bountyId}/applications/${appId}/confirm`, {});
+}
+export async function cancelBounty(bountyId: string) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/bounties/${bountyId}/cancel`, {});
+}
+export async function getGlobalSubmissions(bountyId: string) {
+  if (USE_MOCK) return { success: true, submissions: [] };
+  return get(`/v1/bounties/${bountyId}/submissions`);
+}
+export async function selectWinners(bountyId: string, winners: any[]) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/bounties/${bountyId}/select-winners`, { winners });
+}
+
+// ── Talent (employer/verifier) ──
+export async function searchTalent(params: Record<string, any> = {}) {
+  if (USE_MOCK) return { success: true, results: [], total: 0 };
+  const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== "") as any).toString();
+  return get(`/v1/talent/search${qs ? `?${qs}` : ""}`);
+}
+export async function getTalentFeed() {
+  if (USE_MOCK) return { success: true, students: [], chatCreditsRemaining: 50 };
+  return get(`/v1/employer/talent-feed`);
+}
+
+// ── Chat (credit-gated, v1) ──
+export async function getChatRooms() {
+  if (USE_MOCK) return { success: true, rooms: [] };
+  return get(`/v1/chat/rooms`);
+}
+export async function initializeChat(recipientId: string, contextCredentialId?: string, text?: string) {
+  if (USE_MOCK) return ok({ room: { id: "room-1", isUnlocked: false } });
+  return post(`/v1/chat/initialize`, { recipientId, contextCredentialId, text });
+}
+export async function sendChatMessageV1(roomId: string, text: string) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/chat/${roomId}/message`, { text });
+}
+
+// ── Issuer funnel + issuance (v1) ──
+export async function registerIssuerStepOne(institutionType: string) {
+  if (USE_MOCK) return ok({ status: "domain_pending", dnsChallengeToken: "credchain-verify=mock123" });
+  return post(`/v1/issuer/register-step-one`, { institutionType });
+}
+export async function verifyIssuerDomain() {
+  if (USE_MOCK) return ok({ status: "kyc_pending" });
+  return post(`/v1/issuer/verify-domain`, {});
+}
+export async function submitIssuerKyc(payload: any = {}) {
+  if (USE_MOCK) return ok({ status: "registry_pending" });
+  return post(`/v1/issuer/kyc/submit`, payload);
+}
+export async function issueVerifiedCredential(payload: { title: string; recipientEmail?: string; studentId?: string; requestedTier?: string; skillName?: string; skillCategory?: string; skillTags?: string[] }) {
+  if (USE_MOCK) return ok({ credential: { id: "cred-" + Date.now(), ...payload, status: "pending" } });
+  return post(`/v1/issuer/credentials`, payload);
+}
+export async function revokeCredential(credentialId: string) {
+  if (USE_MOCK) return ok({ credential: { id: credentialId, status: "revoked" } });
+  return post(`/v1/credential/${credentialId}/revoke`, {});
+}
+export async function bulkUploadCredentials(csv: string) {
+  if (USE_MOCK) return ok({ jobId: "job-mock", total: 3 });
+  return post(`/v1/issuer/credentials/bulk`, { csv });
+}
+export async function getBulkJob(jobId: string) {
+  if (USE_MOCK) return { success: true, job: { jobId, status: "complete", percent: 100 } };
+  return get(`/v1/issuer/bulk/${jobId}`);
+}
+
+// ── Fraud / disputes / admin queues ──
+export async function reportCredentialFraud(credentialId: string, reason: string) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/credential/${credentialId}/report-fraud`, { reason });
+}
+export async function getAdminIssuers() {
+  if (USE_MOCK) return { success: true, issuers: [] };
+  return get(`/v1/admin/issuers`);
+}
+export async function registryCrossMatch(userId: string, matched: boolean, notes?: string) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/issuer/registry-cross-match`, { userId, matched, notes });
+}
+export async function listDisputes() {
+  if (USE_MOCK) return { success: true, disputes: [] };
+  return get(`/v1/admin/disputes`);
+}
+export async function resolveDispute(disputeId: string, decision: string, notes?: string) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/admin/disputes/${disputeId}/resolve`, { decision, notes });
+}
+export async function listFraudReports() {
+  if (USE_MOCK) return { success: true, reports: [] };
+  return get(`/v1/admin/fraud-reports`);
+}
+export async function resolveFraudReport(reportId: string, decision: string, notes?: string) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/admin/fraud-reports/${reportId}/resolve`, { decision, notes });
+}
+export async function getInstitutionRequests() {
+  if (USE_MOCK) return { success: true, requests: [] };
+  return get(`/v1/admin/institution-requests`);
+}
+export async function resolveInstitutionRequest(requestId: string, status: string) {
+  if (USE_MOCK) return ok();
+  return post(`/v1/admin/institution-requests/${requestId}/resolve`, { status });
+}
+
+// ── Misc ──
+export async function healthCheck() {
+  return get(`/v1/health`);
+}
+export async function syncTelemetry() {
+  if (USE_MOCK) return ok();
+  return post(`/v1/ai/sync-telemetry`, {});
+}
+// Public live-status SVG badge for a credential (usable in <img src>).
+export function badgeUrl(credentialId: string) {
+  return `${BASE_URL}/v1/badge/${credentialId}`;
+}
+// Google OAuth entry — full-page navigation, not XHR.
+export function googleAuthUrl(role: string = "candidate") {
+  return `${BASE_URL}/v1/auth/google?role=${encodeURIComponent(toBackendRole(role))}`;
 }
 

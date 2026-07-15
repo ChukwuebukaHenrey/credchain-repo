@@ -42,6 +42,8 @@ import EarnTab from "../components/candidate/EarnTab";
 import TrustTab from "../components/candidate/TrustTab";
 import { getCandidate, getNotifications, getQRCode, buildResume, getWhitelistedInstitutions } from "../services/api";
 import { getTheme, toggleTheme, Theme } from "../services/theme";
+import { useAuth } from "../context/AuthContext";
+import { disconnectSocket } from "../services/socket";
 
 type TabType =
   | "dashboard"
@@ -69,6 +71,7 @@ interface Credential {
 
 export default function CandidateDashboard() {
   const navigate = useNavigate();
+  const { user: authUser, logout } = useAuth();
   const [activeTab, setActiveTab] = useState<TabType>("dashboard");
 
   const [candidate, setCandidate] = useState<any>(null);
@@ -185,8 +188,8 @@ export default function CandidateDashboard() {
   }, []);
 
   const handleLogout = () => {
-    localStorage.removeItem("credchain_token");
-    localStorage.removeItem("credchain_role");
+    disconnectSocket();
+    logout();
     navigate("/login");
   };
 

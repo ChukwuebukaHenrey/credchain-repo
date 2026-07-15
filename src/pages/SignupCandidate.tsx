@@ -3,9 +3,14 @@ import { Link } from "react-router-dom";
 import { X, CheckCircle2 } from "lucide-react";
 import AuthScreen from "../components/AuthScreen";
 import { StepHeader, StepNav, Field, SelectField } from "./SignupVerifier";
+import * as api from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 export default function SignupCandidate() {
+  const { login: authLogin } = useAuth();
   const [submitted, setSubmitted] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState(1);
   const totalSteps = 3;
 
@@ -52,32 +57,28 @@ export default function SignupCandidate() {
     if (step < totalSteps) setStep(step + 1);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (busy) return;
     const fullName = `${firstName} ${lastName}`.trim();
-    localStorage.setItem(
-      "cc_user",
-      JSON.stringify({
-        fullName,
-        firstName,
-        lastName,
-        phone,
-        email,
-        dob,
-        gender,
-        nationality,
-        bio,
-        institution,
-        studentId,
-        fieldOfStudy,
-        graduationYear,
-        skills,
-        linkedInUrl,
-        role: "candidate",
-      })
-    );
-    localStorage.setItem("credchain_role", "candidate");
-    setSubmitted(true);
+    setBusy(true);
+    setError(null);
+    try {
+      // Real registration: backend creates the user + JWT. Extra profile fields
+      // (bio, skills, links) ride on the follow-up profile update.
+      const res = await api.signup({ name: fullName, email, password, role: "candidate" });
+      if (res?.success === false || !res?.token) throw new Error(res?.message || "Registration failed");
+      authLogin(res.token, res.user);
+      // Best-effort profile enrichment — non-blocking for signup success.
+      try {
+        await api.updateStudentProfile({ id: res.user?.id || res.user?._id, bio, skills, links: linkedInUrl ? [linkedInUrl] : [] });
+      } catch { /* profile enrichment is optional */ }
+      setSubmitted(true);
+    } catch (err: any) {
+      setError(err?.message || "Registration failed — is the backend running?");
+    } finally {
+      setBusy(false);
+    }
   };
 
   const stepTitle = step === 1 ? "Basic info" : step === 2 ? "Personal details" : "Academic & skills";

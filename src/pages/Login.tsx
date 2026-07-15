@@ -4,6 +4,8 @@ import { ArrowLeft, Mail, Lock, LogIn, User, GraduationCap, Briefcase, ArrowRigh
 import Logo from "../components/Logo";
 import AuthLeftPanel from "../components/AuthLeftPanel";
 import ThemeToggle from "../components/ThemeToggle";
+import * as api from "../services/api";
+import { useAuth } from "../context/AuthContext";
 
 type Role = "candidate" | "issuer" | "verifier";
 
@@ -22,7 +24,7 @@ const ONE_TAP: OneTapRole[] = [
   {
     role: "candidate",
     label: "Candidate Vault",
-    email: "emeka@demo.io",
+    email: "demo-student@credchain.demo",
     icon: <User className="w-4 h-4" strokeWidth={1.75} />,
     accentText: "text-role-candidate",
     accentBg: "hover:bg-role-candidate-soft",
@@ -32,7 +34,7 @@ const ONE_TAP: OneTapRole[] = [
   {
     role: "issuer",
     label: "Institution Desk",
-    email: "registrar@futo.ng",
+    email: "demo-issuer@credchain.demo",
     icon: <GraduationCap className="w-4 h-4" strokeWidth={1.75} />,
     accentText: "text-role-issuer",
     accentBg: "hover:bg-role-issuer-soft",
@@ -42,7 +44,7 @@ const ONE_TAP: OneTapRole[] = [
   {
     role: "verifier",
     label: "Employer Desk",
-    email: "audit@acme.com",
+    email: "demo-employer@credchain.demo",
     icon: <Briefcase className="w-4 h-4" strokeWidth={1.75} />,
     accentText: "text-role-verifier",
     accentBg: "hover:bg-role-verifier-soft",
@@ -53,44 +55,59 @@ const ONE_TAP: OneTapRole[] = [
 
 export default function Login() {
   const navigate = useNavigate();
+  const { login: authLogin } = useAuth();
   const [searchParams] = useSearchParams();
   const roleParam = (searchParams.get("role") || "candidate") as Role;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSignIn = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email) return;
-    const lower = email.toLowerCase();
-    let role: Role = "candidate";
-    let route = "/dashboard";
-    if (lower.includes("registrar") || lower.includes("issuer") || lower.includes("futo")) {
-      role = "issuer";
-      route = "/issuer";
-    } else if (
-      lower.includes("recruiter") ||
-      lower.includes("verifier") ||
-      lower.includes("employer") ||
-      lower.includes("acme")
-    ) {
-      role = "verifier";
-      route = "/verifier";
-    }
-    localStorage.setItem("credchain_role", role);
-    localStorage.setItem("cc_user", JSON.stringify({ email, role, fullName: email.split("@")[0] }));
-    navigate(route);
+  const ROUTE_BY_ROLE: Record<Role, string> = { candidate: "/dashboard", issuer: "/issuer", verifier: "/verifier" };
+
+  // Complete a successful auth response: hand token+user to AuthContext, route to
+  // the role's dashboard. Backend roles arrive pre-translated by api.ts.
+  const finishAuth = (res: any) => {
+    const role = (res?.user?.role || "candidate") as Role;
+    authLogin(res.token || localStorage.getItem("cc_token") || "", res.user);
+    navigate(ROUTE_BY_ROLE[role] || "/dashboard");
   };
 
-  const handleOneTapAuth = (route: string, role: Role) => {
-    localStorage.setItem("credchain_role", role);
-    const mockUsers: Record<Role, any> = {
-      candidate: { fullName: "Emeka Obi", email: "emeka@demo.io", role: "candidate", skills: ["React", "Solidity", "Rust"] },
-      issuer: { instName: "Federal University of Technology Owerri", email: "registrar@futo.ng", role: "issuer", verified: true },
-      verifier: { fullName: "Audit Desk", companyName: "Acme Corp", workEmail: "audit@acme.com", role: "verifier" },
-    };
-    localStorage.setItem("cc_user", JSON.stringify(mockUsers[role]));
-    navigate(route);
+  const handleSignIn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!email || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.login(email, password);
+      if (res?.success === false) throw new Error(res?.message || "Invalid credentials");
+      finishAuth(res);
+    } catch (err: any) {
+      setError(err?.message || "Sign-in failed — check your email and password.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // One-tap demo auth → backend DEMO_MODE accounts (seeded, no password).
+  const handleOneTapAuth = async (_route: string, role: Role) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await api.demoLogin(role);
+      if (res?.success === false) throw new Error(res?.message || "Demo login unavailable");
+      finishAuth(res);
+    } catch (err: any) {
+      setError(err?.message || "Demo login failed — is the backend running on :5000?");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleGoogle = () => {
+    window.location.href = api.googleAuthUrl(roleParam);
   };
 
   const [showPassword, setShowPassword] = useState(false);
@@ -173,6 +190,12 @@ export default function Login() {
                 <div className="flex-1 h-px bg-border-subtle" />
               </div>
 
+              {error && (
+                <div className="text-xs font-mono text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
+                  {error}
+                </div>
+              )}
+
               <form onSubmit={handleSignIn} className="space-y-2.5">
                 <LabeledInput
                   label="EMAIL ADDRESS"
@@ -216,10 +239,11 @@ export default function Login() {
 
                 <button
                   type="submit"
-                  className="w-full py-2 rounded-md bg-brand-purple hover:bg-brand-purple-dim text-white font-semibold text-sm transition-colors cursor-pointer inline-flex items-center justify-center gap-2 mt-1 shadow-lg shadow-brand-purple/20"
+                  disabled={busy}
+                  className="w-full py-2 rounded-md bg-brand-purple hover:bg-brand-purple-dim disabled:opacity-60 text-white font-semibold text-sm transition-colors cursor-pointer inline-flex items-center justify-center gap-2 mt-1 shadow-lg shadow-brand-purple/20"
                 >
                   <LogIn className="w-4 h-4" strokeWidth={2} />
-                  <span>Sign in</span>
+                  <span>{busy ? "Signing in…" : "Sign in"}</span>
                 </button>
               </form>
 
@@ -236,7 +260,7 @@ export default function Login() {
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
-                    onClick={() => handleOneTapAuth("/dashboard", "candidate")}
+                    onClick={handleGoogle}
                     className="py-1.5 px-4 border border-border-main hover:border-border-strong rounded-md text-xs font-mono text-txt-primary flex items-center justify-center gap-2 bg-bg-sunken hover:bg-bg-elevated/40 transition-all cursor-pointer"
                   >
                     <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24">
@@ -336,6 +360,12 @@ export default function Login() {
             <div className="flex-1 h-px bg-border-subtle" />
           </div>
 
+          {error && (
+            <div className="text-xs font-mono text-red-400 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
+              {error}
+            </div>
+          )}
+
           <form onSubmit={handleSignIn} className="space-y-4">
             <LabeledInput
               label="EMAIL ADDRESS"
@@ -377,10 +407,11 @@ export default function Login() {
 
             <button
               type="submit"
-              className="w-full py-3 rounded-md bg-brand-purple hover:bg-brand-purple-dim text-white font-semibold text-sm transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
+              disabled={busy}
+              className="w-full py-3 rounded-md bg-brand-purple hover:bg-brand-purple-dim disabled:opacity-60 text-white font-semibold text-sm transition-colors cursor-pointer inline-flex items-center justify-center gap-2"
             >
               <LogIn className="w-4 h-4" strokeWidth={2} />
-              <span>Sign In</span>
+              <span>{busy ? "Signing in…" : "Sign In"}</span>
             </button>
           </form>
 
@@ -397,7 +428,7 @@ export default function Login() {
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => handleOneTapAuth("/dashboard", "candidate")}
+                onClick={handleGoogle}
                 className="py-2.5 px-4 border border-border-main hover:border-border-strong rounded-md text-xs font-mono text-txt-primary flex items-center justify-center gap-2 bg-bg-sunken hover:bg-bg-elevated/40 transition-all cursor-pointer"
               >
                 <svg className="w-4 h-4" viewBox="0 0 24 24">

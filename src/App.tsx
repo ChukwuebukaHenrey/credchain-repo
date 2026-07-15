@@ -24,6 +24,7 @@ import CandidateDashboard from "./pages/CandidateDashboard";
 import IssuerDashboard from "./pages/IssuerDashboard";
 import VerifierDashboard from "./pages/VerifierDashboard";
 import PublicProfile from "./pages/PublicProfile";
+import AuthCallback from "./pages/AuthCallback";
 
 function Landing() {
   return (
@@ -54,6 +55,7 @@ function AppRoutes() {
       <Route path="/signup/issuer" element={<SignupIssuer />} />
       <Route path="/signup/verifier" element={<SignupVerifier />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
       
       {/* Protected Dashboards */}
       <Route 

@@ -16,6 +16,8 @@ import {
   Signal,
 } from "lucide-react";
 import DashboardShell, { NavGroup } from "../components/DashboardShell";
+import { useAuth } from "../context/AuthContext";
+import { disconnectSocket } from "../services/socket";
 
 interface SavedCandidate {
   id: string;
@@ -27,6 +29,7 @@ interface SavedCandidate {
 type Tab = "verify" | "shortlist" | "logs" | "api" | "settings" | "help";
 
 export default function VerifierDashboard() {
+  const { user: authUser, logout } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>("verify");
   const [searchQuery, setSearchQuery] = useState("");
@@ -95,7 +98,8 @@ export default function VerifierDashboard() {
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("credchain_role");
+    disconnectSocket();
+    logout();
     navigate("/login");
   };
 
