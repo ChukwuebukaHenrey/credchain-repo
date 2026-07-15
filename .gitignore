@@ -17,3 +17,7 @@ BACKEND_INTEGRATION.md
 ROADMAP.md
 *.pptx
 
+
+# Leftover npm-install artifacts from latest-main checkouts (no source here on this branch)
+/backend/
+/frontend/
