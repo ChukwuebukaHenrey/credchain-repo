@@ -554,7 +554,8 @@ export async function verifyIssuerDomain() {
   return post(`/v1/issuer/verify-domain`, {});
 }
 export async function submitIssuerKyc(payload: any = {}) {
-  if (USE_MOCK) return ok({ status: "registry_pending" });
+  // Backend funnel vocab: applied → domain_verified → identity_checked → active.
+  if (USE_MOCK) return ok({ status: "identity_checked" });
   return post(`/v1/issuer/kyc/submit`, payload);
 }
 export async function issueVerifiedCredential(payload: { title: string; recipientEmail?: string; studentId?: string; requestedTier?: string; skillName?: string; skillCategory?: string; skillTags?: string[] }) {

@@ -4,6 +4,7 @@ import {
   Clock,
   FileCheck,
   Shield,
+  ShieldCheck,
   Check,
   X,
   CheckCircle2,
@@ -18,22 +19,41 @@ import {
   Plus,
   Send,
   Signal,
+  Ban,
+  Loader2,
+  AlertTriangle,
 } from "lucide-react";
 import DashboardShell, { NavGroup } from "../components/DashboardShell";
 import { useAuth } from "../context/AuthContext";
 import { disconnectSocket } from "../services/socket";
+import { issueVerifiedCredential, revokeCredential, badgeUrl } from "../services/api";
+import BatchSigner from "../components/issuer/BatchSigner";
+import GetVerifiedFlow from "../components/issuer/GetVerifiedFlow";
 
 interface RequestItem {
   id: string;
   candidate: string;
   matric: string;
+  /** Recipient email — passed to issueVerifiedCredential as recipientEmail. */
+  email: string;
   credential: string;
   status: "pending" | "approved" | "denied";
   txHash?: string;
   denyReason?: string;
 }
 
-type Tab = "requests" | "history" | "batch" | "qr" | "settings" | "help";
+// A credential actually issued this session via POST /api/v1/issuer/credentials.
+interface SessionCredential {
+  id: string;
+  title: string;
+  recipient: string;
+  trustTier?: string;
+  status: string;
+  date: string;
+  revokedTxSignature?: string;
+}
+
+type Tab = "requests" | "history" | "batch" | "verify" | "qr" | "settings" | "help";
 type FilterTab = "all" | "pending" | "approved" | "denied";
 
 export default function IssuerDashboard() {
@@ -55,30 +75,24 @@ export default function IssuerDashboard() {
     photo: localStorage.getItem("credchain_profile_photo")
   });
 
+  // Identity comes from AuthContext (single source of truth), not raw cc_user parsing.
   useEffect(() => {
     localStorage.setItem("credchain_role", "issuer");
-    const storedUserStr = localStorage.getItem("cc_user");
-    if (storedUserStr) {
-      try {
-        const storedUser = JSON.parse(storedUserStr);
-        if (storedUser.role === "issuer") {
-          const name = storedUser.fullName || storedUser.instName || storedUser.name || "FUTO Registrar";
-          const email = storedUser.email || storedUser.contactEmail || "registrar@futo.ng";
-          const domain = email.split("@")[1] || "futo.ng";
-          const initials = name.split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() || "").join("");
-          setIssuerUser({
-            name,
-            subtitle: `Whitelisted Issuer · ${domain}`,
-            initials: initials || "FU",
-            photo: storedUser.photo || localStorage.getItem("credchain_profile_photo")
-          });
-        }
-      } catch (e) {
-        console.error(e);
-      }
-    }
-  }, []);
+    if (!authUser) return;
+    const name = authUser.name || authUser.institution || "FUTO Registrar";
+    const email = authUser.email || "registrar@futo.ng";
+    const domain = email.split("@")[1] || "futo.ng";
+    const initials = name.split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() || "").join("");
+    setIssuerUser({
+      name,
+      subtitle: `Whitelisted Issuer · ${domain}`,
+      initials: initials || "FU",
+      photo: authUser.photo || localStorage.getItem("credchain_profile_photo")
+    });
+  }, [authUser]);
 
+  // Pre-existing hardcoded history — kept ONLY as a fallback when this session
+  // hasn't issued anything real yet (labelled as sample data in the UI).
   const [issuedHistory] = useState([
     { id: 1, candidate: "Emeka Obi", credential: "B.Eng Computer Engineering", date: "2026-06-10", txHash: "5f2a9c1d...e8b3" },
     { id: 2, candidate: "Ada Nwosu", credential: "B.Eng Electrical Engineering", date: "2026-06-08", txHash: "3d7b2e4a...f1c9" },
@@ -86,16 +100,24 @@ export default function IssuerDashboard() {
     { id: 4, candidate: "Yusuf Bello", credential: "B.Eng Mechanical Engineering", date: "2026-05-28", txHash: "6a7b8c9d...0e1f" },
   ]);
 
+  // Credentials really issued this session (from issueVerifiedCredential responses).
+  const [sessionCreds, setSessionCreds] = useState<SessionCredential[]>([]);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [badgePreviewId, setBadgePreviewId] = useState<string | null>(null);
+
+  // NOTE: there is NO backend route for "incoming credential requests from
+  // students" — this queue stays mock/local. Only the issue action is live.
   const [requests, setRequests] = useState<RequestItem[]>([
-    { id: "req-101", candidate: "Emeka Obi", matric: "2021/104256", credential: "B.Eng Computer Engineering", status: "pending" },
-    { id: "req-102", candidate: "Ada Nwosu", matric: "2021/108912", credential: "B.Eng Electrical Engineering", status: "pending" },
-    { id: "req-103", candidate: "Chidi Okafor", matric: "2020/994103", credential: "B.Sc Information Technology", status: "approved", txHash: "5xK9f8a21b...991a" },
+    { id: "req-101", candidate: "Emeka Obi", matric: "2021/104256", email: "emeka@example.com", credential: "B.Eng Computer Engineering", status: "pending" },
+    { id: "req-102", candidate: "Ada Nwosu", matric: "2021/108912", email: "ada.nwosu@example.com", credential: "B.Eng Electrical Engineering", status: "pending" },
+    { id: "req-103", candidate: "Chidi Okafor", matric: "2020/994103", email: "chidi.okafor@example.com", credential: "B.Sc Information Technology", status: "approved", txHash: "5xK9f8a21b...991a" },
   ]);
 
   const [reviewModal, setReviewModal] = useState<RequestItem | null>(null);
   const [confirmModal, setConfirmModal] = useState<RequestItem | null>(null);
   const [issuing, setIssuing] = useState(false);
-  const [issuedResult, setIssuedResult] = useState<{ txHash: string; status: string } | null>(null);
+  const [issuedResult, setIssuedResult] = useState<{ id: string; trustTier?: string; status: string } | null>(null);
+  const [issueError, setIssueError] = useState<{ message: string; unverified: boolean } | null>(null);
   const [denyingId, setDenyingId] = useState<string | null>(null);
   const [denyReasonInput, setDenyReasonInput] = useState("");
   const [toast, setToast] = useState<{ message: string; variant: "success" | "danger" } | null>(null);
@@ -123,21 +145,73 @@ export default function IssuerDashboard() {
     showToast("Request denied.", "danger");
   };
 
-  const triggerIssue = (_req: RequestItem) => {
+  // Real on-chain issuance: POST /api/v1/issuer/credentials with the request's
+  // credential title + candidate email. Requires a VERIFIED issuer — the backend
+  // returns 403 (enforceVerifiedIssuer) otherwise, which we surface as a steer
+  // to the Get Verified flow rather than a fake success.
+  const triggerIssue = async (req: RequestItem) => {
+    if (issuing) return;
     setIssuing(true);
     setIssuedResult(null);
-    const fakeHash = `${Math.random().toString(36).substring(2, 6)}...${Math.random().toString(36).substring(2, 8)}Sol`;
-    setTimeout(() => {
+    setIssueError(null);
+    try {
+      const res = await issueVerifiedCredential({ title: req.credential, recipientEmail: req.email });
+      const cred = res?.credential;
+      if (!cred?.id && !cred?._id) throw new Error(res?.message || "Backend did not return a credential.");
+      const credId = String(cred.id || cred._id);
+      setIssuedResult({ id: credId, trustTier: cred.trustTier, status: cred.status || "pending" });
+      setSessionCreds((prev) => [
+        {
+          id: credId,
+          title: cred.title || req.credential,
+          recipient: req.candidate,
+          trustTier: cred.trustTier,
+          status: cred.status || "pending",
+          date: new Date().toISOString().slice(0, 10),
+        },
+        ...prev,
+      ]);
+    } catch (e: any) {
+      const unverified = e?.status === 403;
+      setIssueError({
+        message: unverified
+          ? "Your issuer account isn't verified yet — complete the verification funnel before issuing on-chain credentials."
+          : e?.message || "Issuance failed — please try again.",
+        unverified,
+      });
+    } finally {
       setIssuing(false);
-      setIssuedResult({ txHash: fakeHash, status: "confirmed" });
-    }, 1800);
+    }
   };
 
-  const finishIssue = (id: string, txHash: string) => {
-    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "approved", txHash } : r)));
+  const finishIssue = (id: string, credentialId: string) => {
+    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status: "approved", txHash: credentialId } : r)));
     setConfirmModal(null);
     setIssuedResult(null);
+    setIssueError(null);
     showToast("Credential issued on-chain.", "success");
+  };
+
+  // On-chain revocation of a session-issued credential.
+  const handleRevoke = async (credentialId: string) => {
+    if (revokingId) return;
+    setRevokingId(credentialId);
+    try {
+      const res = await revokeCredential(credentialId);
+      const revoked = res?.credential;
+      setSessionCreds((prev) =>
+        prev.map((c) =>
+          c.id === credentialId
+            ? { ...c, status: "revoked", revokedTxSignature: revoked?.revokedTxSignature }
+            : c
+        )
+      );
+      showToast("Credential revoked on-chain.", "danger");
+    } catch (e: any) {
+      showToast(e?.message || "Revocation failed — please try again.", "danger");
+    } finally {
+      setRevokingId(null);
+    }
   };
 
   const pendingCount = requests.filter((r) => r.status === "pending").length;
@@ -153,7 +227,10 @@ export default function IssuerDashboard() {
     },
     {
       label: "INSTITUTIONAL",
-      items: [{ id: "qr", label: "Institutional QR", icon: <QrCode className="w-4 h-4" strokeWidth={1.75} /> }],
+      items: [
+        { id: "verify", label: "Get Verified", icon: <ShieldCheck className="w-4 h-4" strokeWidth={1.75} /> },
+        { id: "qr", label: "Institutional QR", icon: <QrCode className="w-4 h-4" strokeWidth={1.75} /> },
+      ],
     },
     {
       label: "ACCOUNT",
@@ -182,6 +259,14 @@ export default function IssuerDashboard() {
       item.candidate.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.credential.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.txHash.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredSessionCreds = sessionCreds.filter(
+    (c) =>
+      searchQuery === "" ||
+      c.recipient.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      c.id.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -401,44 +486,149 @@ export default function IssuerDashboard() {
             </p>
           </div>
 
-          <div className="bg-bg-surface border border-border-main rounded-lg overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs min-w-[640px]">
-                <thead className="bg-bg-sunken text-txt-muted uppercase font-mono text-[10px] border-b border-border-main">
-                  <tr>
-                    <th className="p-4 pl-5">Candidate</th>
-                    <th className="p-4">Credential</th>
-                    <th className="p-4">Issue Date</th>
-                    <th className="p-4">Solana TX</th>
-                    <th className="p-4 text-right pr-5">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border-subtle">
-                  {filteredHistory.length === 0 ? (
+          {/* Real credentials issued this session — revocable, with live badge preview */}
+          {sessionCreds.length > 0 && (
+            <div className="bg-bg-surface border border-border-main rounded-lg overflow-hidden">
+              <div className="px-5 py-3 border-b border-border-main flex items-center justify-between">
+                <div className="font-mono text-[10px] uppercase tracking-wider text-txt-muted">
+                  ISSUED THIS SESSION · LIVE
+                </div>
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-mono uppercase font-semibold px-2 py-0.5 rounded-sm border border-hash-green/30 text-hash-green">
+                  {sessionCreds.length} on-chain
+                </span>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs min-w-[720px]">
+                  <thead className="bg-bg-sunken text-txt-muted uppercase font-mono text-[10px] border-b border-border-main">
                     <tr>
-                      <td colSpan={5} className="p-8 text-center text-txt-muted font-mono text-xs">
-                        // No matching history records found
-                      </td>
+                      <th className="p-4 pl-5">Recipient</th>
+                      <th className="p-4">Credential</th>
+                      <th className="p-4">Credential ID</th>
+                      <th className="p-4">Tier</th>
+                      <th className="p-4">Status</th>
+                      <th className="p-4 text-right pr-5">Actions</th>
                     </tr>
-                  ) : (
-                    filteredHistory.map((item) => (
-                      <tr key={item.id} className="hover:bg-bg-elevated/40 transition-colors">
-                        <td className="p-4 pl-5 font-semibold text-txt-primary">{item.candidate}</td>
-                        <td className="p-4 text-txt-secondary">{item.credential}</td>
-                        <td className="p-4 font-mono text-txt-muted">{item.date}</td>
-                        <td className="p-4 font-mono text-role-issuer break-all">{item.txHash}</td>
-                        <td className="p-4 text-right pr-5">
-                          <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase font-semibold px-2 py-1 rounded-sm border border-hash-green/30 text-hash-green">
-                            <Check className="w-3 h-3" strokeWidth={2.5} /> VERIFIED
-                          </span>
+                  </thead>
+                  <tbody className="divide-y divide-border-subtle">
+                    {filteredSessionCreds.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="p-8 text-center text-txt-muted font-mono text-xs">
+                          // No session credentials match your search
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      filteredSessionCreds.map((cred) => (
+                        <tr key={cred.id} className="hover:bg-bg-elevated/40 transition-colors">
+                          <td className="p-4 pl-5 font-semibold text-txt-primary">{cred.recipient}</td>
+                          <td className="p-4 text-txt-secondary">{cred.title}</td>
+                          <td className="p-4 font-mono text-role-issuer break-all max-w-[160px]">{cred.id}</td>
+                          <td className="p-4 font-mono text-txt-muted uppercase">{cred.trustTier || "—"}</td>
+                          <td className="p-4">
+                            {cred.status === "revoked" ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase font-semibold px-2 py-1 rounded-sm border border-hash-red/30 text-hash-red">
+                                <Ban className="w-3 h-3" strokeWidth={2.5} /> REVOKED
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase font-semibold px-2 py-1 rounded-sm border border-hash-green/30 text-hash-green">
+                                <Check className="w-3 h-3" strokeWidth={2.5} /> {cred.status}
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4 text-right pr-5">
+                            <div className="inline-flex items-center gap-2">
+                              <button
+                                onClick={() => setBadgePreviewId(badgePreviewId === cred.id ? null : cred.id)}
+                                className="px-2.5 py-1.5 rounded-md border border-border-main hover:border-role-issuer text-txt-secondary hover:text-role-issuer font-semibold text-[11px] cursor-pointer transition-colors"
+                              >
+                                {badgePreviewId === cred.id ? "Hide badge" : "Badge"}
+                              </button>
+                              {cred.status !== "revoked" && (
+                                <button
+                                  onClick={() => handleRevoke(cred.id)}
+                                  disabled={revokingId !== null}
+                                  className="px-2.5 py-1.5 rounded-md border border-hash-red/40 text-hash-red hover:bg-hash-red/10 disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-[11px] inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                                >
+                                  {revokingId === cred.id ? (
+                                    <>
+                                      <Loader2 className="w-3 h-3 animate-spin" strokeWidth={2} /> Revoking…
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Ban className="w-3 h-3" strokeWidth={2} /> Revoke
+                                    </>
+                                  )}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {/* Live public SVG badge preview for the selected credential */}
+              {badgePreviewId && (
+                <div className="px-5 py-4 border-t border-border-subtle bg-bg-sunken flex items-center gap-4 flex-wrap">
+                  <img
+                    src={badgeUrl(badgePreviewId)}
+                    alt="Live credential status badge"
+                    className="h-6"
+                    onError={(e) => {
+                      (e.currentTarget as HTMLImageElement).style.display = "none";
+                    }}
+                  />
+                  <code className="font-mono text-[11px] text-txt-muted break-all select-all">{badgeUrl(badgePreviewId)}</code>
+                </div>
+              )}
             </div>
-          </div>
+          )}
+
+          {/* Pre-existing rows — fallback sample data shown only when nothing has
+              been issued this session (there is no backend list route yet). */}
+          {sessionCreds.length === 0 && (
+            <div className="bg-bg-surface border border-border-main rounded-lg overflow-hidden">
+              <div className="px-5 py-3 border-b border-border-main font-mono text-[10px] uppercase tracking-wider text-txt-muted">
+                SAMPLE DATA · issue a credential to see live records here
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs min-w-[640px]">
+                  <thead className="bg-bg-sunken text-txt-muted uppercase font-mono text-[10px] border-b border-border-main">
+                    <tr>
+                      <th className="p-4 pl-5">Candidate</th>
+                      <th className="p-4">Credential</th>
+                      <th className="p-4">Issue Date</th>
+                      <th className="p-4">Solana TX</th>
+                      <th className="p-4 text-right pr-5">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border-subtle">
+                    {filteredHistory.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="p-8 text-center text-txt-muted font-mono text-xs">
+                          // No matching history records found
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredHistory.map((item) => (
+                        <tr key={item.id} className="hover:bg-bg-elevated/40 transition-colors">
+                          <td className="p-4 pl-5 font-semibold text-txt-primary">{item.candidate}</td>
+                          <td className="p-4 text-txt-secondary">{item.credential}</td>
+                          <td className="p-4 font-mono text-txt-muted">{item.date}</td>
+                          <td className="p-4 font-mono text-role-issuer break-all">{item.txHash}</td>
+                          <td className="p-4 text-right pr-5">
+                            <span className="inline-flex items-center gap-1 text-[10px] font-mono uppercase font-semibold px-2 py-1 rounded-sm border border-hash-green/30 text-hash-green">
+                              <Check className="w-3 h-3" strokeWidth={2.5} /> VERIFIED
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -456,16 +646,25 @@ export default function IssuerDashboard() {
             </p>
           </div>
 
-          <div className="bg-bg-surface border border-border-main rounded-lg p-6">
-            <label className="block border border-dashed border-border-main rounded-md p-10 text-center hover:border-role-issuer hover:bg-role-issuer-soft transition-colors cursor-pointer flex flex-col items-center justify-center gap-3">
-              <UploadCloud className="w-9 h-9 text-role-issuer" strokeWidth={1.5} />
-              <div className="text-sm font-semibold text-txt-primary">Drag & drop roster file</div>
-              <div className="text-[11px] font-mono text-txt-muted">
-                .CSV, .XLSX, or .JSON · up to 500 candidates per batch
-              </div>
-              <input type="file" accept=".csv,.xlsx,.json" className="hidden" />
-            </label>
+          <BatchSigner onNotify={showToast} />
+        </div>
+      )}
+
+      {activeTab === "verify" && (
+        <div className="max-w-3xl space-y-6 text-left">
+          <div>
+            <div className="border-l-2 border-role-issuer pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-3">
+              ISSUER VERIFICATION
+            </div>
+            <h1 className="font-display font-bold text-[26px] text-txt-primary tracking-tight">
+              Get verified to issue on-chain.
+            </h1>
+            <p className="text-sm text-txt-secondary mt-1">
+              CredChain's four-layer trust funnel: institution registration, DNS domain proof, KYC, and a final registry cross-match by our admin desk.
+            </p>
           </div>
+
+          <GetVerifiedFlow onNotify={showToast} />
         </div>
       )}
 
@@ -617,7 +816,7 @@ export default function IssuerDashboard() {
 
       {/* Confirm Issue Modal */}
       {confirmModal && (
-        <Modal onClose={() => setConfirmModal(null)} narrow>
+        <Modal onClose={() => { setConfirmModal(null); setIssueError(null); }} narrow>
           {issuing ? (
             <div className="py-6 space-y-4 text-center">
               <Cpu className="w-10 h-10 text-role-issuer mx-auto animate-spin" strokeWidth={1.5} />
@@ -637,15 +836,20 @@ export default function IssuerDashboard() {
               </p>
               <div className="bg-bg-sunken border border-border-main rounded-md p-4 space-y-2 text-left font-mono">
                 <div className="text-[10px] text-txt-muted uppercase font-semibold tracking-wider">
-                  TRANSACTION
+                  CREDENTIAL
                 </div>
-                <div className="text-xs text-role-issuer break-all">{issuedResult.txHash}</div>
+                <div className="text-xs text-role-issuer break-all">{issuedResult.id}</div>
+                {issuedResult.trustTier && (
+                  <div className="text-[10px] text-txt-muted uppercase tracking-wider">
+                    TIER · <span className="text-txt-primary">{issuedResult.trustTier}</span>
+                  </div>
+                )}
                 <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-sm border border-hash-green/30 text-hash-green text-[10px] font-semibold uppercase mt-1">
                   {issuedResult.status}
                 </div>
               </div>
               <button
-                onClick={() => finishIssue(confirmModal.id, issuedResult.txHash)}
+                onClick={() => finishIssue(confirmModal.id, issuedResult.id)}
                 className="w-full py-2.5 rounded-md bg-brand-purple hover:bg-brand-purple-dim text-white font-semibold text-xs cursor-pointer transition-colors"
               >
                 Done
@@ -662,18 +866,43 @@ export default function IssuerDashboard() {
                 <strong className="text-txt-primary">{confirmModal.credential}</strong> for{" "}
                 <strong className="text-txt-primary">{confirmModal.candidate}</strong> and cannot be undone.
               </p>
+              {/* Inline issuance error — 403 (unverified issuer) steers to the funnel */}
+              {issueError && (
+                <div className="border border-hash-red/30 bg-hash-red/5 rounded-md p-3.5 text-left space-y-2.5">
+                  <div className="flex items-start gap-2.5 text-hash-red">
+                    <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" strokeWidth={1.75} />
+                    <p className="text-xs leading-relaxed">{issueError.message}</p>
+                  </div>
+                  {issueError.unverified && (
+                    <button
+                      onClick={() => {
+                        setConfirmModal(null);
+                        setIssueError(null);
+                        setActiveTab("verify");
+                      }}
+                      className="w-full py-2 rounded-md border border-role-issuer text-role-issuer hover:bg-role-issuer-soft font-semibold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5" strokeWidth={2} /> Go to Get Verified
+                    </button>
+                  )}
+                </div>
+              )}
               <div className="flex gap-3 justify-center pt-2">
                 <button
-                  onClick={() => setConfirmModal(null)}
+                  onClick={() => {
+                    setConfirmModal(null);
+                    setIssueError(null);
+                  }}
                   className="flex-1 py-2.5 rounded-md border border-border-main hover:border-border-strong text-txt-secondary font-semibold text-xs cursor-pointer transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => triggerIssue(confirmModal)}
-                  className="flex-1 py-2.5 rounded-md bg-brand-purple hover:bg-brand-purple-dim text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                  disabled={issuing}
+                  className="flex-1 py-2.5 rounded-md bg-brand-purple hover:bg-brand-purple-dim disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold text-xs inline-flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
                 >
-                  <CheckCircle2 className="w-4 h-4" strokeWidth={2} /> Confirm & anchor
+                  <CheckCircle2 className="w-4 h-4" strokeWidth={2} /> {issueError ? "Retry & anchor" : "Confirm & anchor"}
                 </button>
               </div>
             </div>

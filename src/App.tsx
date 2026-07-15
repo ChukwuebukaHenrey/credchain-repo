@@ -23,6 +23,7 @@ import SignupVerifier from "./pages/SignupVerifier";
 import CandidateDashboard from "./pages/CandidateDashboard";
 import IssuerDashboard from "./pages/IssuerDashboard";
 import VerifierDashboard from "./pages/VerifierDashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import PublicProfile from "./pages/PublicProfile";
 import AuthCallback from "./pages/AuthCallback";
 
@@ -110,7 +111,19 @@ function AppRoutes() {
       />
       
       <Route path="/verify/:candidateId" element={<PublicProfile />} />
-      
+
+      {/* Platform admin — no `allow` prop: admin isn't a Role. Any authenticated
+          user can open it; the backend's ADMIN_EMAILS allowlist returns 403 for
+          non-admins and the page shows an "Admins only" panel. */}
+      <Route
+        path="/admin"
+        element={
+          <ProtectedRoute>
+            <AdminDashboard />
+          </ProtectedRoute>
+        }
+      />
+
       {/* Fallback */}
       <Route 
         path="*" 
