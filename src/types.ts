@@ -1,3 +1,19 @@
+export type Role = 'candidate' | 'verifier' | 'issuer';
+export type BackendRole = 'student' | 'employer' | 'issuer';
+
+export interface User {
+  id: string;
+  role: Role;
+  email: string;
+  name: string;
+  credchainId?: string;
+  photo?: string;
+  // Optional fields for different roles
+  institution?: string;
+  field?: string;
+  company?: string;
+}
+
 export interface Credential {
   id: string;
   candidateName: string;
