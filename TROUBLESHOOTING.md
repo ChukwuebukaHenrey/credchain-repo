@@ -88,6 +88,14 @@ Another backend instance is alive: `npx -y kill-port 5000` and re-run.
 ### Windows "pending reboot" / choco installs failing
 Cosmetic for us (we run portable MongoDB), but reboot when convenient. Remember to start mongod again afterwards.
 
+### `[plugin:vite:css-analysis]` / `[plugin:vite:*]` ENOENT pointing at a file that was moved or deleted
+Stale Vite cache — the dev server cached a transform against the old path. From CredChain-Repo-v2:
+```bash
+npx -y kill-port 5173
+rm -rf node_modules/.vite
+npm run dev
+```
+
 ### `DEP0060 util._extend` DeprecationWarning at startup
 Harmless — comes from a dependency, not our code. Ignore.
 
