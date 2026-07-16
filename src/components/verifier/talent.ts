@@ -16,10 +16,15 @@ export interface TalentEntry {
   deliveriesCompleted?: number;
 }
 
-// Tier → badge classes, matching the trust-tier vocabulary used across cc-v2
-// (learner | verified | trusted | elite).
+// Tier → badge classes. Covers both the backend trust-tier vocabulary
+// (learner | practitioner | proven_practitioner | expert | master) and the
+// legacy cc-v2 display vocab (verified | trusted | elite).
 export const TIER_CLASS: Record<string, string> = {
   learner: "text-txt-muted border-border-main",
+  practitioner: "text-hash-green border-hash-green/30",
+  proven_practitioner: "text-role-verifier border-role-verifier/30",
+  expert: "text-brand-purple border-brand-purple/30",
+  master: "text-brand-purple border-brand-purple/50",
   verified: "text-hash-green border-hash-green/30",
   trusted: "text-role-verifier border-role-verifier/30",
   elite: "text-brand-purple border-brand-purple/30",
@@ -31,16 +36,24 @@ export function tierBadgeClass(tier?: string): string {
 
 export function normalizeTalent(raw: any): TalentEntry {
   const stats = raw?.deliveryStats || {};
+  // /v1/talent/search returns StudentProfile docs with a populated userId
+  // ({_id, name, email}); /v1/employer/talent-feed returns a flatter shape.
+  const userRef = raw?.userId && typeof raw.userId === "object" ? raw.userId : null;
+  const rawScore = raw?.credScore;
   return {
-    userId: String(raw?.userId || raw?._id || raw?.id || ""),
-    name: raw?.name || "Unknown candidate",
+    userId: String(userRef?._id || raw?.userId || raw?._id || raw?.id || ""),
+    name: raw?.name || userRef?.name || "Unknown candidate",
     headline: raw?.headline || undefined,
-    credScore: typeof raw?.credScore === "number" ? raw.credScore : raw?.credScore?.total,
+    credScore:
+      typeof rawScore === "number" ? rawScore : rawScore?.value ?? rawScore?.total ?? undefined,
     highestTier: raw?.highestTier || raw?.tier || undefined,
     skillTags: Array.isArray(raw?.skillTags) ? raw.skillTags : [],
     university: raw?.university || raw?.institution || undefined,
-    location: raw?.location || undefined,
-    credchainId: raw?.credchainId || undefined,
+    location:
+      typeof raw?.location === "string"
+        ? raw.location
+        : [raw?.location?.city, raw?.location?.country].filter(Boolean).join(", ") || undefined,
+    credchainId: raw?.credchainId || userRef?.credchainId || undefined,
     deliveriesCompleted:
       typeof stats?.completed === "number" ? stats.completed : typeof stats?.delivered === "number" ? stats.delivered : undefined,
   };

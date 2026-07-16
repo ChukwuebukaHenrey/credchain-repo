@@ -40,7 +40,17 @@ import {
 import DashboardShell, { NavGroup } from "../components/DashboardShell";
 import EarnTab from "../components/candidate/EarnTab";
 import TrustTab from "../components/candidate/TrustTab";
-import { getCandidate, getNotifications, getQRCode, buildResume, getWhitelistedInstitutions } from "../services/api";
+import {
+  getCandidate,
+  getNotifications,
+  getQRCode,
+  buildResume,
+  getWhitelistedInstitutions,
+  getStudentPortfolio,
+  acceptCredential,
+  rejectCredential,
+  disputeCredential,
+} from "../services/api";
 import { getTheme, toggleTheme, Theme } from "../services/theme";
 import { useAuth } from "../context/AuthContext";
 import { disconnectSocket } from "../services/socket";
@@ -67,6 +77,41 @@ interface Credential {
   reason?: string;
   revokedReason?: string;
   dispute?: { status: string; reason: string } | null;
+  /** Solana tx signature once the credential is anchored on-chain. */
+  txSignature?: string;
+  explorerUrl?: string;
+  trustTier?: string;
+}
+
+// Backend credential statuses → UI vocab. Backend: pending | accepted | rejected | revoked.
+const BACKEND_CRED_STATUS: Record<string, Credential["status"]> = {
+  accepted: "verified",
+  verified: "verified",
+  pending: "pending",
+  rejected: "rejected",
+  revoked: "revoked",
+};
+
+/** Normalize a backend credential doc (Mongo `_id`, `txSignature`, `createdAt`) into the UI card shape. */
+function toUiCredential(c: any): Credential {
+  const status = BACKEND_CRED_STATUS[String(c.status || "").toLowerCase()] || "pending";
+  const sig: string | undefined = c.txSignature || c.txHash || undefined;
+  return {
+    id: String(c._id || c.id),
+    title: c.title || "Untitled credential",
+    issuer: c.issuer || "Unknown issuer",
+    status,
+    hash: sig || c.sha256Hash || (status === "pending" ? "Awaiting your acceptance" : "Not anchored"),
+    date: c.createdAt
+      ? new Date(c.createdAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })
+      : c.date || "—",
+    reason: c.reason,
+    revokedReason: c.revokedReason || (status === "revoked" ? c.revocation?.reason : undefined),
+    dispute: c.dispute || null,
+    txSignature: sig,
+    explorerUrl: c.explorerUrl || (sig ? `https://explorer.solana.com/tx/${sig}?cluster=devnet` : undefined),
+    trustTier: c.trustTier,
+  };
 }
 
 export default function CandidateDashboard() {
@@ -75,13 +120,20 @@ export default function CandidateDashboard() {
   const [activeTab, setActiveTab] = useState<TabType>("dashboard");
 
   const [candidate, setCandidate] = useState<any>(null);
+  const [portfolio, setPortfolio] = useState<any>(null);
+  const [creds, setCreds] = useState<Credential[]>([]);
+  const [credsLoading, setCredsLoading] = useState(true);
+  const [credActionId, setCredActionId] = useState<string | null>(null);
+  const [credActionMsg, setCredActionMsg] = useState<string | null>(null);
+  const [disputeCred, setDisputeCred] = useState<Credential | null>(null);
+  const [disputeReason, setDisputeReason] = useState("");
   const [notifications, setNotifications] = useState<any[]>([]);
   const [qrUrl, setQrUrl] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState("");
 
   const [profileBannerOpen, setProfileBannerOpen] = useState(true);
   const [walletCopied, setWalletCopied] = useState(false);
-  const [credFilter, setCredFilter] = useState<"all" | "verified" | "pending" | "rejected">("all");
+  const [credFilter, setCredFilter] = useState<"all" | "verified" | "pending" | "rejected" | "revoked">("all");
 
   // Request credential
   const [reqInst, setReqInst] = useState("Federal University of Technology Owerri (FUTO)");
@@ -157,25 +209,66 @@ export default function CandidateDashboard() {
   );
   const [onboardingStep, setOnboardingStep] = useState(1);
 
+  // Real user id from AuthContext (Mongo _id in live mode). Fall back to the
+  // demo fixture id so the mock branch keeps working without a session.
+  const userId = authUser?.id || "demo-candidate";
+
+  // Fetch the student profile + credentials + trust portfolio for this user.
+  const refetchStudent = React.useCallback(async () => {
+    try {
+      const cand = await getCandidate(userId);
+      setCandidate(cand);
+      if (cand) {
+        setPortfolioName(cand.name || authUser?.name || "Candidate");
+        setPortfolioHeadline(
+          `${cand.field || "Student"}${cand.institution ? ` · ${cand.institution}` : ""}`
+        );
+        if (Array.isArray(cand.skills) && cand.skills.length > 0) setPortfolioSkills(cand.skills);
+        if (cand.bio) setPortfolioBio(cand.bio);
+        if (Array.isArray(cand.credentials)) setCreds(cand.credentials.map(toUiCredential));
+      }
+    } catch (err) {
+      console.error("Failed to load candidate profile", err);
+      // Keep whatever we already have; identity still renders from authUser.
+    }
+    try {
+      const p = await getStudentPortfolio(userId);
+      const port = p?.portfolio || null;
+      setPortfolio(port);
+      // Mock-mode fallback: getCandidate's mock has no credentials array, but the
+      // mock portfolio surfaces them as verifiedSkills (full credential fixtures).
+      setCreds((prev) =>
+        prev.length === 0 && Array.isArray(port?.verifiedSkills) && port.verifiedSkills.some((v: any) => v?.title)
+          ? port.verifiedSkills.map(toUiCredential)
+          : prev
+      );
+    } catch (err) {
+      console.error("Failed to load student portfolio", err);
+    }
+  }, [userId, authUser?.name]);
+
   useEffect(() => {
     async function loadContext() {
-      const cand = await getCandidate("demo-candidate");
-      const notifs = await getNotifications("demo-candidate");
-      const qr = await getQRCode("demo-candidate", "public");
+      setCredsLoading(true);
+      // Seed identity immediately from the authenticated session — no cc_user parsing.
+      if (authUser?.name) setPortfolioName(authUser.name);
 
-      setCandidate(cand);
-      setPortfolioName(cand?.name || "Emeka Obi");
-      if (cand) {
-        setPortfolioHeadline(`${cand.field || "Computer Engineering"} student · ${cand.institution || "FUTO"}`);
-        if (cand.skills && cand.skills.length > 0) {
-          setPortfolioSkills(cand.skills);
-        }
-        if (cand.bio) {
-          setPortfolioBio(cand.bio);
-        }
+      await refetchStudent();
+      setCredsLoading(false);
+
+      // Notifications + QR stay mock-backed (no backend route for either).
+      try {
+        const notifs = await getNotifications(userId);
+        setNotifications(notifs || []);
+      } catch {
+        setNotifications([]);
       }
-      setNotifications(notifs || []);
-      setQrUrl(qr?.qr_image_url || `https://api.qrserver.com/v1/create-qr-code/?data=https://credchain.io/verify/demo-candidate&size=200x200`);
+      try {
+        const qr = await getQRCode(userId, "public");
+        setQrUrl(qr?.qr_image_url || `https://api.qrserver.com/v1/create-qr-code/?data=https://credchain.io/verify/${userId}&size=200x200`);
+      } catch {
+        setQrUrl(`https://api.qrserver.com/v1/create-qr-code/?data=https://credchain.io/verify/${userId}&size=200x200`);
+      }
 
       try {
         const insts = await getWhitelistedInstitutions();
@@ -185,7 +278,60 @@ export default function CandidateDashboard() {
       }
     }
     loadContext();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
+  // ── Credential lifecycle actions (accept anchors on-chain; refetch after) ──
+  const handleAcceptCredential = async (c: Credential) => {
+    setCredActionId(c.id);
+    try {
+      const res = await acceptCredential(c.id);
+      const sig = res?.credential?.txSignature;
+      setCredActionMsg(
+        sig
+          ? `"${c.title}" accepted and anchored on-chain. Tx: ${sig}`
+          : `"${c.title}" accepted.`
+      );
+      await refetchStudent();
+    } catch (err: any) {
+      setCredActionMsg(`Could not accept "${c.title}": ${err?.message || "request failed"}`);
+    } finally {
+      setCredActionId(null);
+      setTimeout(() => setCredActionMsg(null), 8000);
+    }
+  };
+
+  const handleRejectCredential = async (c: Credential) => {
+    setCredActionId(c.id);
+    try {
+      await rejectCredential(c.id);
+      setCredActionMsg(`"${c.title}" rejected.`);
+      await refetchStudent();
+    } catch (err: any) {
+      setCredActionMsg(`Could not reject "${c.title}": ${err?.message || "request failed"}`);
+    } finally {
+      setCredActionId(null);
+      setTimeout(() => setCredActionMsg(null), 8000);
+    }
+  };
+
+  const handleDisputeSubmit = async () => {
+    if (!disputeCred) return;
+    const target = disputeCred;
+    setCredActionId(target.id);
+    setDisputeCred(null);
+    try {
+      await disputeCredential(target.id, disputeReason.trim() || "Revocation believed to be in error.");
+      setCredActionMsg(`Dispute filed for "${target.title}" — under independent review.`);
+      await refetchStudent();
+    } catch (err: any) {
+      setCredActionMsg(`Could not file dispute: ${err?.message || "request failed"}`);
+    } finally {
+      setCredActionId(null);
+      setDisputeReason("");
+      setTimeout(() => setCredActionMsg(null), 8000);
+    }
+  };
 
   const handleLogout = () => {
     disconnectSocket();
@@ -210,7 +356,7 @@ export default function CandidateDashboard() {
   const handleGenerateResumeSubmit = async () => {
     setGeneratingResume(true);
     try {
-      const res = await buildResume("demo-candidate", resumePrompt);
+      const res = await buildResume(userId, resumePrompt);
       setGeneratedResumeHtml(res.resume_html);
     } catch (err) {
       setGeneratedResumeHtml(
@@ -223,6 +369,9 @@ export default function CandidateDashboard() {
 
   const handleRequestSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // NOTE: student-initiated credential requests are not a backend feature yet
+    // (issuance is issuer-driven via /v1/issuer/credentials). Keep the optimistic
+    // UI so the flow demos; swap in the real endpoint when it exists.
     setReqSuccess(true);
     setTimeout(() => {
       setReqSuccess(false);
@@ -238,15 +387,17 @@ export default function CandidateDashboard() {
     setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, published: !currentPublished } : p)));
   };
 
-  const sampleCreds: Credential[] = [
-    { id: "cred-1", title: `B.Eng. ${candidate?.field || "Software Engineering"}`, issuer: candidate?.institution || "Federal University of Technology, Owerri", status: "verified", hash: "0x7f3a9b2c4d1e", date: `May ${candidate?.graduationYear || 2026}` },
-    { id: "cred-2", title: "Microsoft AI-900 Certification", issuer: "Microsoft · DSN Elevate", status: "verified", hash: "0x2c8f1a7e3b0d", date: "Mar 2026" },
-    { id: "cred-3", title: "Hackathon — 2nd Place Finalist", issuer: "TRI AI Saturdays · June 2026", status: "verified", hash: "0x9a1d4c7f2e8b", date: "Jun 2026" },
-    { id: "cred-4", title: "Internship Letter — Frontend Dev", issuer: "Accenture Nigeria · 2025", status: "pending", hash: "Awaiting institution signature", date: "Nov 2025" },
-    { id: "cred-5", title: "100 Level Academic Transcript", issuer: candidate?.institution || "Federal University of Technology, Owerri", status: "verified", hash: "0x5e2b0f9c3d7a", date: "Feb 2026" },
-    { id: "cred-6", title: "NYSC Discharge Certificate", issuer: "National Youth Service Corps", status: "rejected", hash: "Verification declined", date: "Jan 2026", reason: "Matric/service number did not exactly match official institution records." },
-    { id: "cred-7", title: "AWS Cloud Practitioner", issuer: "Amazon Web Services", status: "revoked", hash: "0x8c1f4b7a2d9e", date: "Aug 2025", revokedReason: "Issuer flagged a certificate-ID mismatch during a routine audit." },
-  ];
+  // Real credentials fetched from the backend (see refetchStudent). Derived
+  // pending/verified/revoked views come straight from credential.status.
+  const sampleCreds: Credential[] = creds;
+  const pendingCreds = creds.filter((c) => c.status === "pending");
+  const verifiedCreds = creds.filter((c) => c.status === "verified");
+  const revokedCreds = creds.filter((c) => c.status === "revoked");
+  void revokedCreds; // surfaced via the "revoked" filter tab + Trust tab
+
+  // Public share identity — the /verify/:candidateId route resolves by credchainId.
+  const publicId = candidate?.credchainId || authUser?.credchainId || userId;
+  const publicProfileUrl = `${window.location.origin}/verify/${publicId}`;
 
   const filteredCreds = sampleCreds.filter((c) => {
     const matchesTab = credFilter === "all" || c.status === credFilter;
@@ -257,12 +408,28 @@ export default function CandidateDashboard() {
     return matchesTab && matchesSearch;
   });
 
-  const sampleActivities = [
-    { title: "AI-900 Certification", issuer: "Microsoft", action: "Credential issued", date: "Jun 3, 2026", status: "Verified" },
-    { title: "Internship Letter", issuer: "Accenture", action: "Requested from issuer", date: "Jun 1, 2026", status: "Pending" },
-    { title: "Hackathon Award", issuer: "TRI AI Saturdays", action: "Credential issued", date: "May 28, 2026", status: "Verified" },
-    { title: "Resume Generated", issuer: "CredChain AI", action: "AI resume created", date: "May 25, 2026", status: "Done" },
-  ];
+  // Activity ledger derived from real credential state (newest first).
+  const sampleActivities = creds.slice(0, 6).map((c) => ({
+    title: c.title,
+    issuer: c.issuer,
+    action:
+      c.status === "verified"
+        ? "Credential anchored on-chain"
+        : c.status === "pending"
+        ? "Awaiting your acceptance"
+        : c.status === "revoked"
+        ? "Revoked by issuer"
+        : "Rejected",
+    date: c.date,
+    status:
+      c.status === "verified"
+        ? "Verified"
+        : c.status === "pending"
+        ? "Pending"
+        : c.status === "revoked"
+        ? "Revoked"
+        : "Rejected",
+  }));
 
   const filteredActivities = sampleActivities.filter(
     (act) =>
@@ -313,9 +480,14 @@ export default function CandidateDashboard() {
       <DashboardShell
         role="candidate"
         user={{
-          name: portfolioName,
-          subtitle: `Candidate · ${candidate?.institution || "FUTO"}`,
-          initials: portfolioName.split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() || "").join("") || "EO",
+          name: candidate?.name || authUser?.name || portfolioName,
+          subtitle: `Candidate · ${candidate?.institution || authUser?.institution || authUser?.email || "CredChain"}`,
+          initials:
+            (candidate?.name || authUser?.name || portfolioName)
+              .split(/\s+/)
+              .slice(0, 2)
+              .map((w: string) => w[0]?.toUpperCase() || "")
+              .join("") || "CC",
           photo: profilePhoto
         }}
         navGroups={navGroups}
@@ -393,10 +565,10 @@ export default function CandidateDashboard() {
 
             {/* Stat row */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-              <StatCell label="TOTAL CREDENTIALS" value="7" trend="+2" />
-              <StatCell label="VERIFIED ON-CHAIN" value="5" tone="green" trend="+1" />
-              <StatCell label="PROFILE VIEWS" value="142" trend="+18" />
-              <StatCell label="RESUMES GENERATED" value="3" />
+              <StatCell label="TOTAL CREDENTIALS" value={String(creds.length)} />
+              <StatCell label="VERIFIED ON-CHAIN" value={String(verifiedCreds.length)} tone="green" />
+              <StatCell label="PENDING ACCEPTANCE" value={String(pendingCreds.length)} tone="role" />
+              <StatCell label="CREDSCORE" value={String(portfolio?.credScore?.total ?? portfolio?.credScore ?? "—")} />
             </div>
 
             {/* Credential wallet preview */}
@@ -414,14 +586,27 @@ export default function CandidateDashboard() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {sampleCreds.slice(0, 5).map((c) => (
-                  <WalletCredentialCard
-                    key={c.id}
-                    credential={c}
-                    onShare={() => setActiveTab("qr")}
-                    onView={() => alert(`Viewing Merkle proof for ${c.title} on Solana Explorer.`)}
-                  />
-                ))}
+                {credsLoading ? (
+                  <div className="col-span-full text-center text-txt-muted font-mono text-xs py-10">
+                    // Loading credential wallet…
+                  </div>
+                ) : (
+                  sampleCreds.slice(0, 5).map((c) => (
+                    <WalletCredentialCard
+                      key={c.id}
+                      credential={c}
+                      onShare={() => setActiveTab("qr")}
+                      onView={() => {
+                        if (c.explorerUrl) window.open(c.explorerUrl, "_blank", "noopener");
+                        else alert("This credential is not anchored on-chain yet.");
+                      }}
+                      onAccept={c.status === "pending" ? () => handleAcceptCredential(c) : undefined}
+                      onReject={c.status === "pending" ? () => handleRejectCredential(c) : undefined}
+                      onDispute={c.status === "revoked" && !c.dispute ? () => setDisputeCred(c) : undefined}
+                      actionBusy={credActionId === c.id}
+                    />
+                  ))
+                )}
                 <button
                   onClick={() => setActiveTab("request")}
                   className="border border-dashed border-border-main hover:border-role-candidate hover:bg-role-candidate-soft rounded-lg p-6 transition-colors flex flex-col items-center justify-center text-center gap-3 min-h-[200px] cursor-pointer"
@@ -524,9 +709,16 @@ export default function CandidateDashboard() {
               </p>
             </div>
 
+            {/* Action feedback (accept/reject/dispute results) */}
+            {credActionMsg && (
+              <div className="border border-hash-green/30 bg-hash-green/5 rounded-md p-3 text-hash-green text-xs font-mono break-all">
+                {credActionMsg}
+              </div>
+            )}
+
             {/* Filter tabs */}
             <div className="inline-flex items-center gap-1 bg-bg-surface border border-border-main rounded-md p-1 text-xs">
-              {(["all", "verified", "pending", "rejected"] as const).map((f) => (
+              {(["all", "verified", "pending", "rejected", "revoked"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setCredFilter(f)}
@@ -542,16 +734,29 @@ export default function CandidateDashboard() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredCreds.map((c) => (
-                <WalletCredentialCard
-                  key={c.id}
-                  credential={c}
-                  large
-                  onShare={() => setActiveTab("qr")}
-                  onView={() => alert(`Viewing on-chain signature for ${c.title}`)}
-                  onResubmit={() => setActiveTab("request")}
-                />
-              ))}
+              {credsLoading ? (
+                <div className="col-span-full text-center text-txt-muted font-mono text-xs py-10">
+                  // Loading credential vault…
+                </div>
+              ) : (
+                filteredCreds.map((c) => (
+                  <WalletCredentialCard
+                    key={c.id}
+                    credential={c}
+                    large
+                    onShare={() => setActiveTab("qr")}
+                    onView={() => {
+                      if (c.explorerUrl) window.open(c.explorerUrl, "_blank", "noopener");
+                      else alert("This credential is not anchored on-chain yet.");
+                    }}
+                    onResubmit={() => setActiveTab("request")}
+                    onAccept={c.status === "pending" ? () => handleAcceptCredential(c) : undefined}
+                    onReject={c.status === "pending" ? () => handleRejectCredential(c) : undefined}
+                    onDispute={c.status === "revoked" && !c.dispute ? () => setDisputeCred(c) : undefined}
+                    actionBusy={credActionId === c.id}
+                  />
+                ))
+              )}
               <button
                 onClick={() => setActiveTab("request")}
                 className="border border-dashed border-border-main hover:border-role-candidate hover:bg-role-candidate-soft rounded-lg p-6 transition-colors flex flex-col items-center justify-center text-center gap-3 min-h-[220px] cursor-pointer"
@@ -951,7 +1156,7 @@ export default function CandidateDashboard() {
                   <span>{viewAsPublic ? "Exit public preview" : "View as public"}</span>
                 </button>
                 <Link
-                  to={`/verify/demo-candidate`}
+                  to={`/verify/${publicId}`}
                   target="_blank"
                   className="p-2 rounded-md border border-border-main hover:border-role-candidate text-txt-secondary hover:text-txt-primary transition-colors"
                   title="Open public URL"
@@ -1041,7 +1246,7 @@ export default function CandidateDashboard() {
                     <ShieldCheck className="w-4 h-4" strokeWidth={2} /> Verified Student
                   </span>
                   <span className="text-txt-muted">·</span>
-                  <span className="text-txt-secondary">Federal University of Technology, Owerri</span>
+                  <span className="text-txt-secondary">{candidate?.institution || authUser?.institution || authUser?.email || "CredChain"}</span>
                 </div>
               </div>
             </div>
@@ -1159,14 +1364,7 @@ export default function CandidateDashboard() {
 
         {activeTab === "earn" && <EarnTab />}
 
-        {activeTab === "trust" && (
-          <TrustTab
-            candidateId={candidate?.id || "demo-candidate"}
-            credentials={candidate?.credentials || sampleCreds}
-            sandboxSkills={candidate?.sandboxSkills || []}
-            attestedSkills={candidate?.attestedSkills || []}
-          />
-        )}
+        {activeTab === "trust" && <TrustTab candidateId={userId} credentials={creds} onChanged={refetchStudent} />}
 
         {activeTab === "qr" && (
           <div className="max-w-3xl mx-auto space-y-6">
@@ -1206,7 +1404,7 @@ export default function CandidateDashboard() {
               <div className="w-full flex justify-center">
                 <div className="bg-white rounded-md p-6 border border-border-main inline-block">
                   <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?data=https://credchain.io/verify/demo-candidate?scope=${qrScope}&size=220x220`}
+                    src={`https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(`${publicProfileUrl}?scope=${qrScope}`)}&size=220x220`}
                     alt={`Scoped QR · ${qrScope}`}
                     className="w-48 h-48 sm:w-56 sm:h-56 block mx-auto"
                   />
@@ -1218,14 +1416,12 @@ export default function CandidateDashboard() {
                   <input
                     readOnly
                     type="text"
-                    value={`https://credchain.io/verify/demo?scope=${qrScope}`}
+                    value={`${publicProfileUrl}?scope=${qrScope}`}
                     className="bg-transparent text-xs text-txt-secondary font-mono flex-1 focus:outline-none truncate"
                   />
                   <button
                     onClick={() => {
-                      navigator.clipboard.writeText(
-                        `https://credchain.io/verify/demo?scope=${qrScope}`
-                      );
+                      navigator.clipboard.writeText(`${publicProfileUrl}?scope=${qrScope}`);
                       setQrCopied(true);
                       setTimeout(() => setQrCopied(false), 2000);
                     }}
@@ -1548,6 +1744,56 @@ export default function CandidateDashboard() {
         )}
       </DashboardShell>
 
+      {/* Dispute revoked credential modal */}
+      {disputeCred && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+          onClick={() => setDisputeCred(null)}
+        >
+          <div
+            className="bg-bg-surface border border-border-strong rounded-xl p-6 w-full max-w-md"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-display text-lg font-bold text-txt-primary flex items-center gap-2">
+                <AlertCircle className="w-5 h-5 text-hash-red" /> Dispute revocation
+              </h3>
+              <button
+                onClick={() => setDisputeCred(null)}
+                className="text-txt-muted hover:text-txt-primary cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-sm text-txt-secondary mb-1">{disputeCred.title}</p>
+            <p className="text-xs text-txt-muted mb-4">
+              Your dispute goes to an independent review queue — never back to the issuer who revoked it.
+            </p>
+            <textarea
+              value={disputeReason}
+              onChange={(e) => setDisputeReason(e.target.value)}
+              placeholder="Explain why this revocation is in error…"
+              rows={4}
+              className="w-full bg-bg-sunken border border-border-main rounded-md px-3 py-2 text-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:border-brand-purple resize-none mb-4"
+            />
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setDisputeCred(null)}
+                className="text-sm text-txt-secondary hover:text-txt-primary px-4 py-2 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDisputeSubmit}
+                className="text-sm font-semibold bg-brand-purple hover:bg-brand-purple-dim text-white px-4 py-2 rounded-md transition-colors cursor-pointer"
+              >
+                File dispute
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Onboarding Wizard */}
       {onboardingOpen && (
         <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
@@ -1715,12 +1961,20 @@ function WalletCredentialCard({
   onShare,
   onView,
   onResubmit,
+  onAccept,
+  onReject,
+  onDispute,
+  actionBusy = false,
   large = false,
 }: {
   credential: Credential;
   onShare: () => void;
   onView: () => void;
   onResubmit?: () => void;
+  onAccept?: () => void;
+  onReject?: () => void;
+  onDispute?: () => void;
+  actionBusy?: boolean;
   large?: boolean;
 }) {
   const borderTopColor =
@@ -1782,6 +2036,12 @@ function WalletCredentialCard({
         </div>
       )}
 
+      {credential.status === "revoked" && credential.revokedReason && (
+        <div className="border-l-2 border-hash-red bg-hash-red/5 px-3 py-2 text-[11px] text-hash-red font-mono leading-relaxed">
+          <strong>Revoked:</strong> {credential.revokedReason}
+        </div>
+      )}
+
       <div className="pt-3 border-t border-border-subtle flex items-center justify-between text-[11px] font-mono text-txt-muted">
         <span className="truncate max-w-[150px]" title={credential.hash}>
           {credential.hash}
@@ -1790,7 +2050,38 @@ function WalletCredentialCard({
       </div>
 
       <div className="flex gap-2">
-        {credential.status === "rejected" && onResubmit ? (
+        {credential.status === "pending" && onAccept && onReject ? (
+          <>
+            <button
+              onClick={onAccept}
+              disabled={actionBusy}
+              className="flex-1 py-2 rounded-md bg-brand-purple hover:bg-brand-purple-dim disabled:opacity-50 text-white font-semibold text-xs cursor-pointer transition-colors inline-flex items-center justify-center gap-1.5"
+            >
+              <Check className="w-3.5 h-3.5" strokeWidth={2.5} />
+              {actionBusy ? "Anchoring…" : "Accept"}
+            </button>
+            <button
+              onClick={onReject}
+              disabled={actionBusy}
+              className="flex-1 py-2 rounded-md border border-hash-red text-hash-red hover:bg-hash-red/10 disabled:opacity-50 font-semibold text-xs cursor-pointer transition-colors inline-flex items-center justify-center gap-1.5"
+            >
+              <X className="w-3.5 h-3.5" strokeWidth={2.5} />
+              Reject
+            </button>
+          </>
+        ) : credential.status === "revoked" && onDispute ? (
+          <button
+            onClick={onDispute}
+            disabled={actionBusy}
+            className="w-full py-2 rounded-md border border-hash-red text-hash-red hover:bg-hash-red/10 disabled:opacity-50 font-semibold text-xs cursor-pointer transition-colors"
+          >
+            Dispute revocation
+          </button>
+        ) : credential.status === "revoked" && credential.dispute ? (
+          <span className="w-full py-2 rounded-md border border-role-candidate/30 text-role-candidate font-mono text-[11px] text-center">
+            Dispute under review
+          </span>
+        ) : credential.status === "rejected" && onResubmit ? (
           <button
             onClick={onResubmit}
             className="w-full py-2 rounded-md border border-hash-red text-hash-red hover:bg-hash-red/10 font-semibold text-xs cursor-pointer transition-colors"

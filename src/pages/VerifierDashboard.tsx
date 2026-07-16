@@ -35,7 +35,16 @@ import BountiesTab, { Bounty } from "../components/verifier/BountiesTab";
 
 type Tab = "verify" | "shortlist" | "bounties" | "logs" | "api" | "settings" | "help";
 
-const TIER_FILTERS = ["", "learner", "verified", "trusted", "elite"];
+// Backend trust-tier vocabulary (minimum-tier filter): learner → practitioner →
+// proven_practitioner → expert → master. Empty string = any tier.
+const TIER_FILTERS: { value: string; label: string }[] = [
+  { value: "", label: "Any tier" },
+  { value: "learner", label: "Learner+" },
+  { value: "practitioner", label: "Practitioner+" },
+  { value: "proven_practitioner", label: "Proven practitioner+" },
+  { value: "expert", label: "Expert+" },
+  { value: "master", label: "Master" },
+];
 
 export default function VerifierDashboard() {
   const { user: authUser, logout } = useAuth();
@@ -81,7 +90,8 @@ export default function VerifierDashboard() {
     setSearchError(null);
     try {
       const res: any = await searchTalent({ q: talentQuery.trim() || undefined, tier: tierFilter || undefined, limit: 12 });
-      const list = Array.isArray(res?.results) ? res.results : [];
+      // Backend returns { students, total, page, pages } (not `results`).
+      const list = Array.isArray(res?.students) ? res.students : Array.isArray(res?.results) ? res.results : [];
       setResults(list.map(normalizeTalent).filter((t: TalentEntry) => t.userId));
       setResultsTotal(typeof res?.total === "number" ? res.total : list.length);
       setSearched(true);
@@ -425,8 +435,8 @@ export default function VerifierDashboard() {
                 className="bg-bg-surface border border-border-main rounded-md px-3 py-2.5 text-sm text-txt-primary focus:outline-none focus:border-role-verifier transition-colors cursor-pointer"
               >
                 {TIER_FILTERS.map((t) => (
-                  <option key={t} value={t}>
-                    {t ? `${t[0].toUpperCase()}${t.slice(1)} tier` : "Any tier"}
+                  <option key={t.value} value={t.value}>
+                    {t.label}
                   </option>
                 ))}
               </select>
