@@ -42,15 +42,32 @@ interface Bounty {
 interface MyApplication {
   _id?: string;
   id?: string;
-  bountyId: string;
+  // Live backend embeds the bounty ({id, title, company, reward, bountyType, ...});
+  // bountyId is kept for mock fixtures / older shapes.
+  bounty?: {
+    id?: string;
+    title?: string;
+    company?: string;
+    companyLogo?: string;
+    reward?: string;
+    status?: string;
+    bountyType?: string;
+  } | null;
+  bountyId?: string;
   status: "applied" | "accepted" | "delivered" | "confirmed" | string;
   delivery?: { text?: string; links?: string[] } | null;
+  // Live backend: rating.studentToEmployer / rating.employerToStudent.
+  rating?: { studentToEmployer?: { stars?: number } | null; employerToStudent?: { stars?: number } | null } | null;
   bountyTitle?: string;
   company?: string;
   reward?: string;
   myRating?: { stars: number } | null;
   rated?: boolean;
 }
+
+// The bounty id an application points at, across live ({bounty:{id}}) and mock
+// ({bountyId}) shapes.
+const appBountyId = (a: MyApplication) => String(a.bounty?.id || a.bountyId || "");
 
 const STATUS_LABEL: Record<string, string> = {
   applied: "Applied",
@@ -128,12 +145,16 @@ export default function EarnTab() {
     }
   };
 
-  const doRespond = async (b: Bounty, decision: "accept" | "decline") => {
-    const id = bountyKey(b);
+  const doRespond = async (b: Bounty | null, decision: "accept" | "decline", fallbackId?: string) => {
+    const id = b ? bountyKey(b) : String(fallbackId || "");
+    if (!id) {
+      flash("Could not resolve the task to respond to.");
+      return;
+    }
     setBusyId(id);
     try {
       await respondToDirectTask(id, decision);
-      flash(decision === "accept" ? `Accepted task "${b.title}".` : `Declined task "${b.title}".`);
+      flash(decision === "accept" ? `Accepted task "${b?.title || "task"}".` : `Declined task "${b?.title || "task"}".`);
       await refetch();
     } catch (err: any) {
       flash(`Could not ${decision}: ${err?.message || "request failed"}`);
@@ -251,8 +272,8 @@ export default function EarnTab() {
           bounties={bounties}
           busyId={busyId}
           onRespond={doRespond}
-          onDeliver={(app) => setDeliverFor({ bounty: findBounty(String(app.bountyId)), app })}
-          onRate={(app) => setRateFor({ bounty: findBounty(String(app.bountyId)), app })}
+          onDeliver={(app) => setDeliverFor({ bounty: findBounty(appBountyId(app)), app })}
+          onRate={(app) => setRateFor({ bounty: findBounty(appBountyId(app)), app })}
         />
       ) : visible.length === 0 ? (
         <div className="text-txt-muted text-sm py-12 text-center border border-dashed border-border-main rounded-lg">
@@ -283,7 +304,7 @@ export default function EarnTab() {
           onClose={() => setDeliverFor(null)}
           onSubmit={(text, links) =>
             doDeliver(
-              deliverFor.bounty ? bountyKey(deliverFor.bounty) : String(deliverFor.app.bountyId),
+              deliverFor.bounty ? bountyKey(deliverFor.bounty) : appBountyId(deliverFor.app),
               appId(deliverFor.app),
               text,
               links
@@ -297,7 +318,7 @@ export default function EarnTab() {
           onClose={() => setRateFor(null)}
           onSubmit={(stars, comment) =>
             doRate(
-              rateFor.bounty ? bountyKey(rateFor.bounty) : String(rateFor.app.bountyId),
+              rateFor.bounty ? bountyKey(rateFor.bounty) : appBountyId(rateFor.app),
               appId(rateFor.app),
               stars,
               comment
@@ -461,7 +482,7 @@ function MyApplicationsPanel({
   applications: MyApplication[];
   bounties: Bounty[];
   busyId: string | null;
-  onRespond: (bounty: Bounty, decision: "accept" | "decline") => void;
+  onRespond: (bounty: Bounty | null, decision: "accept" | "decline", fallbackId?: string) => void;
   onDeliver: (app: MyApplication) => void;
   onRate: (app: MyApplication) => void;
 }) {
@@ -475,15 +496,17 @@ function MyApplicationsPanel({
   return (
     <div className="space-y-3">
       {applications.map((a) => {
-        const b = bounties.find((x) => bountyKey(x) === String(a.bountyId)) || null;
-        const title = b?.title || a.bountyTitle || "Bounty";
-        const company = b?.company || a.company || "";
-        const busy = busyId === String(a.bountyId);
+        const bid = appBountyId(a);
+        const b = bounties.find((x) => bountyKey(x) === bid) || null;
+        const title = a.bounty?.title || b?.title || a.bountyTitle || "Bounty";
+        const company = a.bounty?.company || b?.company || a.company || "";
+        const busy = busyId === bid;
         const status = String(a.status || "applied");
-        const rated = Boolean(a.rated || a.myRating);
+        // Live backend: rating.studentToEmployer records the candidate's own rating.
+        const rated = Boolean(a.rating?.studentToEmployer?.stars || a.rated || a.myRating);
         return (
           <div
-            key={appId(a) || String(a.bountyId)}
+            key={appId(a) || appBountyId(a)}
             className="bg-bg-surface border border-border-main rounded-lg p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
           >
             <div className="min-w-0">
@@ -500,19 +523,19 @@ function MyApplicationsPanel({
             </div>
 
             <div className="shrink-0 flex items-center gap-2">
-              {((status === "invited" && b?.bountyType === "direct") ||
-                (status === "applied" && b?.bountyType === "assigned")) && (
+              {((status === "invited" && (a.bounty?.bountyType || b?.bountyType) === "direct") ||
+                (status === "applied" && (a.bounty?.bountyType || b?.bountyType) === "assigned")) && (
                 <>
                   <button
                     disabled={busy}
-                    onClick={() => onRespond(b, "accept")}
+                    onClick={() => onRespond(b, "accept", bid)}
                     className="text-[11px] font-semibold bg-brand-purple hover:bg-brand-purple-dim disabled:opacity-50 text-white px-2.5 py-1.5 rounded-md transition-colors cursor-pointer"
                   >
                     Accept
                   </button>
                   <button
                     disabled={busy}
-                    onClick={() => onRespond(b, "decline")}
+                    onClick={() => onRespond(b, "decline", bid)}
                     className="text-[11px] font-semibold border border-border-main hover:border-hash-red text-txt-secondary hover:text-hash-red disabled:opacity-50 px-2.5 py-1.5 rounded-md transition-colors cursor-pointer"
                   >
                     Decline
