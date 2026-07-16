@@ -8,7 +8,9 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "seed": "cd ../backend && npm run seed",
+    "dev:backend": "cd ../backend && npm run dev"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
