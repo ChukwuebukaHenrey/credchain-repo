@@ -63,3 +63,6 @@ scratch/
 
 # Leftover root scratch script (hardcoded 3rd-party API key) — never ship.
 /index.js
+# CredChain-Repo-v2 is its own git repository (the v2 UI, branch ui-redesign).
+# Not tracked here as a submodule — clone/manage it independently.
+CredChain-Repo-v2/

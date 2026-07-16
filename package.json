@@ -14,6 +14,8 @@
     "dev:all": "npm run freeports && npm run seed && concurrently -k -n backend,frontend,cv-engine,insights -c blue,green,magenta,yellow \"npm:dev:backend\" \"npm:dev:frontend\" \"npm:dev:cv\" \"npm:dev:insights\"",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd frontend && npm run dev",
+    "dev:ccv2": "cd CredChain-Repo-v2 && npm run dev",
+    "dev:v2": "npm run freeports && npm run seed && concurrently -k -n backend,ccv2 -c blue,cyan \"npm:dev:backend\" \"npm:dev:ccv2\"",
     "dev:cv": "cd ai-cv-engine && venv\\Scripts\\python.exe -m uvicorn src.api:app --host 0.0.0.0 --port 8001 --reload",
     "dev:insights": "cd ai-insights-engine && venv\\Scripts\\python.exe -m uvicorn src.api:app --host 0.0.0.0 --port 8002 --reload",
     "install:backend": "cd backend && npm install",
