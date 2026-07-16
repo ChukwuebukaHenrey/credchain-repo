@@ -139,13 +139,30 @@ export default function VerifierDashboard() {
   const fetchRooms = useCallback(async () => {
     try {
       const res: any = await getChatRooms();
-      setRooms(Array.isArray(res?.rooms) ? res.rooms : []);
+      const raw = Array.isArray(res?.rooms) ? res.rooms : [];
+      // Backend shapes rooms as {id, otherParticipant:{id,name,role}, messages,
+      // isUnlocked, iInitiated} — normalize to the drawer's {_id, participants[]}
+      // shape (reading r._id directly yields undefined → "Invalid roomId" on send).
+      setRooms(
+        raw.map((r: any) => ({
+          _id: String(r._id || r.id || ""),
+          participants: Array.isArray(r.participants)
+            ? r.participants
+            : [
+                { _id: String(r.otherParticipant?.id || ""), name: r.otherParticipant?.name, role: r.otherParticipant?.role },
+                { _id: String(myUserId) },
+              ],
+          messages: Array.isArray(r.messages) ? r.messages : [],
+          isUnlocked: Boolean(r.isUnlocked),
+          iInitiated: Boolean(r.iInitiated),
+        }))
+      );
     } catch {
       /* rooms stay as-is; drawer shows its own empty state */
     } finally {
       setRoomsLoading(false);
     }
-  }, []);
+  }, [myUserId]);
 
   useEffect(() => {
     fetchRooms();
