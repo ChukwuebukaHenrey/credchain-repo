@@ -27,6 +27,8 @@ import DashboardShell, { NavGroup } from "../components/DashboardShell";
 import { useAuth } from "../context/AuthContext";
 import { disconnectSocket } from "../services/socket";
 import { issueVerifiedCredential, revokeCredential, badgeUrl } from "../services/api";
+import { loadAvatar, saveAvatar, validateAvatarFile, readAvatarFile, getAvatarFor } from "../lib/avatars";
+import { getBrandLogo } from "../lib/brandLogos";
 import BatchSigner from "../components/issuer/BatchSigner";
 import GetVerifiedFlow from "../components/issuer/GetVerifiedFlow";
 
@@ -68,12 +70,20 @@ export default function IssuerDashboard() {
     subtitle: string;
     initials: string;
     photo?: string | null;
-  }>({
-    name: "FUTO Registrar",
-    subtitle: "Whitelisted Issuer · futo.ng",
-    initials: "FU",
-    photo: localStorage.getItem("credchain_profile_photo")
+    photoFit?: "cover" | "contain";
+  }>(() => {
+    const uploaded = localStorage.getItem("credchain_profile_photo");
+    return {
+      name: "FUTO Registrar",
+      subtitle: "Whitelisted Issuer · futo.ng",
+      initials: "FU",
+      // Institutional identity: uploaded photo wins, else the FUTO logo.
+      photo: uploaded || getBrandLogo("FUTO"),
+      photoFit: uploaded ? "cover" : "contain",
+    };
   });
+
+  const issuerId = authUser?.id || "demo-issuer";
 
   // Identity comes from AuthContext (single source of truth), not raw cc_user parsing.
   useEffect(() => {
@@ -83,13 +93,35 @@ export default function IssuerDashboard() {
     const email = authUser.email || "registrar@futo.ng";
     const domain = email.split("@")[1] || "futo.ng";
     const initials = name.split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() || "").join("");
+    const uploaded =
+      loadAvatar(issuerId) || authUser.photo || localStorage.getItem("credchain_profile_photo");
+    const brandLogo = getBrandLogo(authUser.institution || name || domain);
     setIssuerUser({
       name,
       subtitle: `Whitelisted Issuer · ${domain}`,
       initials: initials || "FU",
-      photo: authUser.photo || localStorage.getItem("credchain_profile_photo")
+      photo: uploaded || brandLogo,
+      photoFit: uploaded ? "cover" : "contain",
     });
-  }, [authUser]);
+  }, [authUser, issuerId]);
+
+  // Client-side avatar upload (no backend avatar field) — data-URL in
+  // localStorage under cc_avatar_<userId>, per-browser only.
+  const handleAvatarSelect = async (file: File) => {
+    const error = validateAvatarFile(file);
+    if (error) {
+      showToast(error, "danger");
+      return;
+    }
+    try {
+      const dataUrl = await readAvatarFile(file);
+      saveAvatar(issuerId, dataUrl);
+      setIssuerUser((prev) => ({ ...prev, photo: dataUrl, photoFit: "cover" }));
+      showToast("Profile photo updated (stored in this browser).", "success");
+    } catch (err: any) {
+      showToast(err?.message || "Could not read the selected image.", "danger");
+    }
+  };
 
   // Pre-existing hardcoded history — kept ONLY as a fallback when this session
   // hasn't issued anything real yet (labelled as sample data in the UI).
@@ -279,6 +311,7 @@ export default function IssuerDashboard() {
       onSearchChange={setSearchQuery}
       searchPlaceholder="Search matric or records…"
       notificationCount={pendingCount}
+      onAvatarSelect={handleAvatarSelect}
       onLogout={handleLogout}
       topbarRightExtra={
         <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border-main text-txt-secondary text-[11px] font-mono">
@@ -401,8 +434,16 @@ export default function IssuerDashboard() {
                 >
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-4">
-                      <div className="w-11 h-11 rounded-md bg-role-issuer-soft text-role-issuer border border-border-main font-mono font-bold text-sm flex items-center justify-center flex-shrink-0">
-                        {getInitials(req.candidate)}
+                      <div className="w-11 h-11 rounded-md bg-role-issuer-soft text-role-issuer border border-border-main font-mono font-bold text-sm flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        {getAvatarFor({ name: req.candidate }) ? (
+                          <img
+                            src={getAvatarFor({ name: req.candidate })!}
+                            alt={req.candidate}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          getInitials(req.candidate)
+                        )}
                       </div>
                       <div className="flex flex-col gap-0.5">
                         <span className="font-display font-semibold text-[15px] text-txt-primary">
@@ -706,6 +747,25 @@ export default function IssuerDashboard() {
           </div>
 
           <div className="bg-bg-surface border border-border-main rounded-lg p-6 space-y-5">
+            <div className="flex items-center gap-4 pb-4 border-b border-border-subtle">
+              <div className="w-14 h-14 rounded-md bg-bg-elevated border border-border-main flex items-center justify-center overflow-hidden flex-shrink-0">
+                {getBrandLogo("FUTO") ? (
+                  <img
+                    src={getBrandLogo("FUTO")!}
+                    alt="Federal University of Technology Owerri logo"
+                    className="w-full h-full object-contain p-1"
+                  />
+                ) : (
+                  <span className="font-mono font-bold text-role-issuer">FU</span>
+                )}
+              </div>
+              <div>
+                <div className="font-display font-semibold text-sm text-txt-primary">
+                  Federal University of Technology Owerri
+                </div>
+                <div className="text-[11px] font-mono text-txt-muted">Whitelisted Issuer · futo.ng</div>
+              </div>
+            </div>
             <ReadOnlyField label="Institution Name" value="Federal University of Technology Owerri (FUTO)" />
             <ReadOnlyField label="Registrar Solana Authority" value="7xKp9W...3mEq1Z" mono accent="role-issuer" />
             <p className="text-[11px] text-txt-muted font-mono pt-2 border-t border-border-subtle">

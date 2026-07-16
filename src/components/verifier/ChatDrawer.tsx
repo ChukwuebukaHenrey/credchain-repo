@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeft, Lock, LockOpen, MessageSquare, Send, X } from "lucide-react";
+import { getAvatarFor } from "../../lib/avatars";
 
 // Chat drawer — credit-gated employer↔candidate chat over /api/v1/chat.
 // The dashboard owns room fetching + the socket subscription (it also needs
@@ -35,6 +36,25 @@ function formatTime(iso?: string) {
   } catch {
     return "";
   }
+}
+
+/** Participant avatar — seeded/uploaded image when one matches, else initials. */
+function ParticipantAvatar({ name, size = "w-9 h-9" }: { name?: string; size?: string }) {
+  const src = getAvatarFor({ name });
+  const initials =
+    (name || "")
+      .trim()
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() || "")
+      .join("") || "?";
+  return (
+    <div
+      className={`${size} rounded-md bg-role-verifier-soft text-role-verifier border border-border-main font-mono text-xs font-semibold flex items-center justify-center flex-shrink-0 overflow-hidden`}
+    >
+      {src ? <img src={src} alt={name || "Candidate"} className="w-full h-full object-cover" /> : initials}
+    </div>
+  );
 }
 
 export default function ChatDrawer({
@@ -116,6 +136,9 @@ export default function ChatDrawer({
               <ArrowLeft className="w-4 h-4" />
             </button>
           )}
+          {activeRoom && (
+            <ParticipantAvatar name={roomCounterpart(activeRoom, myUserId)?.name} size="w-8 h-8" />
+          )}
           <div className="flex-1 min-w-0">
             <div className="font-display font-semibold text-[15px] text-txt-primary truncate">
               {activeRoom ? roomCounterpart(activeRoom, myUserId)?.name || "Candidate" : "Candidate chat"}
@@ -171,25 +194,30 @@ export default function ChatDrawer({
                     onClick={() => onSelectRoom(room._id)}
                     className="w-full text-left bg-bg-base border border-border-main hover:border-border-strong rounded-lg p-4 transition-colors cursor-pointer"
                   >
-                    <div className="flex items-center justify-between gap-2 mb-1">
-                      <span className="font-semibold text-sm text-txt-primary truncate">{other?.name || "Candidate"}</span>
-                      <span
-                        className={`inline-flex items-center gap-1 text-[10px] font-mono uppercase font-semibold px-2 py-0.5 rounded-sm border flex-shrink-0 ${
-                          room.isUnlocked
-                            ? "text-hash-green border-hash-green/30"
-                            : "text-role-verifier border-role-verifier/30"
-                        }`}
-                      >
-                        {room.isUnlocked ? <LockOpen className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
-                        {room.isUnlocked ? "Unlocked" : "Locked"}
-                      </span>
+                    <div className="flex items-center gap-3">
+                      <ParticipantAvatar name={other?.name} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="font-semibold text-sm text-txt-primary truncate">{other?.name || "Candidate"}</span>
+                          <span
+                            className={`inline-flex items-center gap-1 text-[10px] font-mono uppercase font-semibold px-2 py-0.5 rounded-sm border flex-shrink-0 ${
+                              room.isUnlocked
+                                ? "text-hash-green border-hash-green/30"
+                                : "text-role-verifier border-role-verifier/30"
+                            }`}
+                          >
+                            {room.isUnlocked ? <LockOpen className="w-3 h-3" /> : <Lock className="w-3 h-3" />}
+                            {room.isUnlocked ? "Unlocked" : "Locked"}
+                          </span>
+                        </div>
+                        <div className="text-xs text-txt-secondary truncate">
+                          {last ? last.text : "No messages yet"}
+                        </div>
+                        {last?.sentAt && (
+                          <div className="text-[10px] font-mono text-txt-muted mt-1">{formatTime(last.sentAt)}</div>
+                        )}
+                      </div>
                     </div>
-                    <div className="text-xs text-txt-secondary truncate">
-                      {last ? last.text : "No messages yet"}
-                    </div>
-                    {last?.sentAt && (
-                      <div className="text-[10px] font-mono text-txt-muted mt-1">{formatTime(last.sentAt)}</div>
-                    )}
                   </button>
                 );
               })

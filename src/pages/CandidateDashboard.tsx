@@ -54,6 +54,9 @@ import {
 import { getTheme, toggleTheme, Theme } from "../services/theme";
 import { useAuth } from "../context/AuthContext";
 import { disconnectSocket } from "../services/socket";
+import { Github, Linkedin, Twitter, Globe, Mail } from "lucide-react";
+import { getAvatarFor, loadAvatar, saveAvatar, clearAvatar, validateAvatarFile, readAvatarFile } from "../lib/avatars";
+import { getBrandLogo } from "../lib/brandLogos";
 
 type TabType =
   | "dashboard"
@@ -160,7 +163,6 @@ export default function CandidateDashboard() {
   const [profilePhoto, setProfilePhoto] = useState<string | null>(() =>
     localStorage.getItem("credchain_profile_photo")
   );
-  const [viewAsPublic, setViewAsPublic] = useState(false);
   const [portfolioName, setPortfolioName] = useState("Emeka Obi");
   const [portfolioHeadline, setPortfolioHeadline] = useState(
     "Frontend-leaning Software Engineering student · FUTO"
@@ -212,6 +214,38 @@ export default function CandidateDashboard() {
   // Real user id from AuthContext (Mongo _id in live mode). Fall back to the
   // demo fixture id so the mock branch keeps working without a session.
   const userId = authUser?.id || "demo-candidate";
+
+  // Resolve avatar once identity is known: per-user upload → legacy key →
+  // seeded demo image (Amara/Emeka). Uploads are client-side only (no backend
+  // avatar field), stored as data-URLs under cc_avatar_<userId>.
+  useEffect(() => {
+    const resolved =
+      loadAvatar(userId) ||
+      localStorage.getItem("credchain_profile_photo") ||
+      getAvatarFor({ id: userId, email: authUser?.email, name: candidate?.name || authUser?.name });
+    setProfilePhoto(resolved);
+  }, [userId, authUser?.email, authUser?.name, candidate?.name]);
+
+  const handleAvatarSelect = async (file: File) => {
+    const error = validateAvatarFile(file);
+    if (error) {
+      alert(error);
+      return;
+    }
+    try {
+      const dataUrl = await readAvatarFile(file);
+      saveAvatar(userId, dataUrl);
+      setProfilePhoto(dataUrl);
+    } catch (err: any) {
+      alert(err?.message || "Could not read the selected image.");
+    }
+  };
+
+  const handleAvatarRemove = () => {
+    clearAvatar(userId);
+    localStorage.removeItem("credchain_profile_photo");
+    setProfilePhoto(getAvatarFor({ email: authUser?.email, name: candidate?.name || authUser?.name }));
+  };
 
   // Fetch the student profile + credentials + trust portfolio for this user.
   const refetchStudent = React.useCallback(async () => {
@@ -379,14 +413,6 @@ export default function CandidateDashboard() {
     }, 1500);
   };
 
-  const handleProjectPublishToggle = (id: number, currentPublished: boolean, desc: string) => {
-    if (!currentPublished && !desc.trim()) {
-      alert("Add a description to publish this project.");
-      return;
-    }
-    setProjects((prev) => prev.map((p) => (p.id === id ? { ...p, published: !currentPublished } : p)));
-  };
-
   // Real credentials fetched from the backend (see refetchStudent). Derived
   // pending/verified/revoked views come straight from credential.status.
   const sampleCreds: Credential[] = creds;
@@ -496,6 +522,7 @@ export default function CandidateDashboard() {
         onSearchChange={setSearchQuery}
         searchPlaceholder={`Search ${activeTab}…`}
         notificationCount={unreadNotifsCount}
+        onAvatarSelect={handleAvatarSelect}
         onLogout={handleLogout}
       >
         {activeTab === "dashboard" && (
@@ -832,12 +859,22 @@ export default function CandidateDashboard() {
                         }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          <Building2
-                            className={`w-4 h-4 flex-shrink-0 ${
-                              reqInst === instName ? "text-role-candidate" : "text-txt-muted"
-                            }`}
-                            strokeWidth={1.75}
-                          />
+                          {getBrandLogo(instName) ? (
+                            <span className="w-6 h-6 rounded-sm bg-bg-elevated border border-border-main flex items-center justify-center flex-shrink-0 overflow-hidden">
+                              <img
+                                src={getBrandLogo(instName)!}
+                                alt={`${instName} logo`}
+                                className="w-full h-full object-contain p-0.5"
+                              />
+                            </span>
+                          ) : (
+                            <Building2
+                              className={`w-4 h-4 flex-shrink-0 ${
+                                reqInst === instName ? "text-role-candidate" : "text-txt-muted"
+                              }`}
+                              strokeWidth={1.75}
+                            />
+                          )}
                           <div className="min-w-0">
                             <div className="text-xs font-semibold text-txt-primary truncate">{instName}</div>
                             <div className="text-[10px] font-mono text-txt-muted truncate">
@@ -1129,237 +1166,29 @@ export default function CandidateDashboard() {
         )}
 
         {activeTab === "portfolio" && (
-          <div className="max-w-4xl mx-auto space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-5">
-              <div>
-                <div className="border-l-2 border-role-candidate pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-3">
-                  PUBLIC DESK
-                </div>
-                <h1 className="font-display font-bold text-[26px] text-txt-primary tracking-tight">
-                  My portfolio.
-                </h1>
-                <p className="text-sm text-txt-secondary mt-1">
-                  Control what verifiers can inspect.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setViewAsPublic(!viewAsPublic)}
-                  className={`px-3 py-2 rounded-md text-xs font-semibold inline-flex items-center gap-2 transition-colors cursor-pointer ${
-                    viewAsPublic
-                      ? "bg-brand-purple text-white"
-                      : "border border-border-main text-txt-primary hover:border-role-candidate"
-                  }`}
-                >
-                  <Eye className="w-4 h-4" strokeWidth={1.75} />
-                  <span>{viewAsPublic ? "Exit public preview" : "View as public"}</span>
-                </button>
-                <Link
-                  to={`/verify/${publicId}`}
-                  target="_blank"
-                  className="p-2 rounded-md border border-border-main hover:border-role-candidate text-txt-secondary hover:text-txt-primary transition-colors"
-                  title="Open public URL"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                </Link>
-              </div>
-            </div>
-
-            {viewAsPublic && (
-              <div className="border-l-2 border-role-candidate bg-role-candidate-soft p-3 text-xs text-role-candidate font-mono">
-                // PUBLIC PREVIEW MODE — exact read-only view employers see
-              </div>
-            )}
-
-            {/* Profile header */}
-            <div className="bg-bg-surface border border-border-main rounded-lg p-6 flex flex-col sm:flex-row gap-6 items-start">
-              <div className="relative group flex-shrink-0">
-                <div className="w-20 h-20 rounded-md bg-role-candidate-soft text-role-candidate font-display font-bold text-2xl flex items-center justify-center overflow-hidden border border-border-main">
-                  {profilePhoto ? (
-                    <img src={profilePhoto} alt={portfolioName} className="w-full h-full object-cover" />
-                  ) : (
-                    "EO"
-                  )}
-                </div>
-                {!viewAsPublic && (
-                  <label className="absolute inset-0 rounded-md bg-black/60 opacity-0 group-hover:opacity-100 flex flex-col items-center justify-center gap-1 text-white text-[10px] font-mono cursor-pointer transition-opacity">
-                    <Camera className="w-4 h-4 text-role-candidate" strokeWidth={1.75} />
-                    <span>Change</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) {
-                          const reader = new FileReader();
-                          reader.onload = (ev) => {
-                            const res = ev.target?.result as string;
-                            setProfilePhoto(res);
-                            localStorage.setItem("credchain_profile_photo", res);
-                            // Also update inside cc_user
-                            try {
-                              const storedUserStr = localStorage.getItem("cc_user");
-                              if (storedUserStr) {
-                                const storedUser = JSON.parse(storedUserStr);
-                                storedUser.photo = res;
-                                localStorage.setItem("cc_user", JSON.stringify(storedUser));
-                              }
-                            } catch (err) {
-                              console.error("Failed to update user photo in localStorage", err);
-                            }
-                          };
-                          reader.readAsDataURL(file);
-                        }
-                      }}
-                    />
-                  </label>
-                )}
-              </div>
-              <div className="flex-1 space-y-3 w-full">
-                <input
-                  readOnly={viewAsPublic}
-                  type="text"
-                  value={portfolioName}
-                  onChange={(e) => setPortfolioName(e.target.value)}
-                  className={`w-full text-xl font-display font-bold text-txt-primary rounded-md px-2 py-1 transition-colors ${
-                    viewAsPublic
-                      ? "border-transparent pointer-events-none bg-transparent"
-                      : "border border-border-main focus:border-role-candidate bg-bg-sunken"
-                  }`}
-                />
-                <input
-                  readOnly={viewAsPublic}
-                  type="text"
-                  value={portfolioHeadline}
-                  onChange={(e) => setPortfolioHeadline(e.target.value)}
-                  className={`w-full text-xs text-txt-secondary font-mono rounded-md px-2 py-1 transition-colors ${
-                    viewAsPublic
-                      ? "border-transparent pointer-events-none bg-transparent"
-                      : "border border-border-main focus:border-role-candidate bg-bg-sunken"
-                  }`}
-                />
-
-                <div className="flex items-center gap-3 pt-1 text-xs">
-                  <span className="flex items-center gap-1.5 text-hash-green font-mono">
-                    <ShieldCheck className="w-4 h-4" strokeWidth={2} /> Verified Student
-                  </span>
-                  <span className="text-txt-muted">·</span>
-                  <span className="text-txt-secondary">{candidate?.institution || authUser?.institution || authUser?.email || "CredChain"}</span>
-                </div>
-              </div>
-            </div>
-
-            {/* Bio + skills */}
-            <div className="bg-bg-surface border border-border-main rounded-lg p-6 space-y-4">
-              <h3 className="font-display font-semibold text-[16px] text-txt-primary">
-                About & verified competencies
-              </h3>
-              <textarea
-                readOnly={viewAsPublic}
-                rows={3}
-                value={portfolioBio}
-                onChange={(e) => setPortfolioBio(e.target.value)}
-                className={`w-full text-xs text-txt-secondary leading-relaxed rounded-md p-3 transition-colors ${
-                  viewAsPublic
-                    ? "border-transparent pointer-events-none bg-transparent pl-0"
-                    : "border border-border-main focus:border-role-candidate bg-bg-sunken"
-                }`}
-              />
-
-              <div className="flex flex-wrap gap-2 pt-2">
-                {portfolioSkills.map((s) => (
-                  <span
-                    key={s}
-                    className="px-2 py-1 rounded-sm border border-border-main bg-bg-sunken text-role-candidate text-xs font-mono inline-flex items-center gap-1.5"
-                  >
-                    <Check className="w-3 h-3 text-hash-green" strokeWidth={2.5} /> {s}
-                    {!viewAsPublic && (
-                      <X
-                        onClick={() => setPortfolioSkills(portfolioSkills.filter((sk) => sk !== s))}
-                        className="w-3 h-3 text-txt-muted hover:text-hash-red ml-1 cursor-pointer"
-                      />
-                    )}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Projects */}
-            <div className="bg-bg-surface border border-border-main rounded-lg p-6 space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-display font-semibold text-[16px] text-txt-primary">
-                  Projects & verifiable proofs
-                </h3>
-                {!viewAsPublic && (
-                  <button
-                    onClick={() =>
-                      setProjects([
-                        ...projects,
-                        {
-                          id: Date.now(),
-                          title: "New verifiable project",
-                          desc: "Project summary…",
-                          tags: ["Solidity"],
-                          published: false,
-                        },
-                      ])
-                    }
-                    className="text-xs font-mono text-role-candidate hover:text-txt-primary cursor-pointer"
-                  >
-                    + Add project
-                  </button>
-                )}
-              </div>
-
-              <div className="space-y-2">
-                {projects.filter((p) => !viewAsPublic || p.published).map((p) => (
-                  <div
-                    key={p.id}
-                    className="p-4 rounded-md bg-bg-sunken border border-border-main flex flex-col sm:flex-row sm:items-center justify-between gap-3"
-                  >
-                    <div className="space-y-1">
-                      <h4 className="font-display font-semibold text-sm text-txt-primary">{p.title}</h4>
-                      <p className="text-xs text-txt-secondary">{p.desc || "No description added yet."}</p>
-                      <div className="flex gap-1.5 pt-1">
-                        {p.tags.map((t) => (
-                          <span
-                            key={t}
-                            className="px-1.5 py-0.5 rounded-sm border border-border-main text-[10px] font-mono text-txt-secondary"
-                          >
-                            {t}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    {!viewAsPublic && (
-                      <div className="flex items-center gap-2 self-end sm:self-center">
-                        <button
-                          onClick={() => handleProjectPublishToggle(p.id, p.published, p.desc)}
-                          className={`px-2.5 py-1.5 rounded-sm text-[11px] font-mono font-semibold transition-colors cursor-pointer ${
-                            p.published
-                              ? "text-hash-green border border-hash-green/30"
-                              : "text-txt-secondary border border-border-main hover:text-txt-primary"
-                          }`}
-                        >
-                          {p.published ? "● Published" : "○ Hidden"}
-                        </button>
-                        <button
-                          onClick={() => setProjects(projects.filter((pr) => pr.id !== p.id))}
-                          className="text-txt-muted hover:text-hash-red p-1"
-                          aria-label="Remove project"
-                        >
-                          <X className="w-4 h-4" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
+          <PortfolioTab
+            name={portfolioName}
+            headline={portfolioHeadline}
+            bio={portfolioBio}
+            skills={portfolioSkills}
+            photo={profilePhoto}
+            email={authUser?.email}
+            credentials={creds}
+            sandboxSkills={
+              Array.isArray(portfolio?.sandboxSkills)
+                ? portfolio.sandboxSkills
+                    .map((s: any) => String(s?.skillName || s?.name || ""))
+                    .filter(Boolean)
+                : []
+            }
+            publicUrl={publicProfileUrl}
+            initialProjects={projects.map((p) => ({
+              id: p.id,
+              title: p.title,
+              desc: p.desc,
+              link: "",
+            }))}
+          />
         )}
 
         {activeTab === "earn" && <EarnTab />}
@@ -1508,6 +1337,53 @@ export default function CandidateDashboard() {
               <h3 className="font-display font-semibold text-[16px] text-txt-primary border-b border-border-subtle pb-3">
                 Quick settings
               </h3>
+
+              {/* Profile photo (client-side only — stored in this browser) */}
+              <div className="flex items-center justify-between gap-4 flex-wrap">
+                <div className="flex items-center gap-4">
+                  <div className="relative group w-14 h-14 rounded-md bg-role-candidate-soft text-role-candidate font-display font-bold text-lg flex items-center justify-center overflow-hidden border border-border-main flex-shrink-0">
+                    {profilePhoto ? (
+                      <img src={profilePhoto} alt={portfolioName} className="w-full h-full object-cover" />
+                    ) : (
+                      portfolioName
+                        .split(/\s+/)
+                        .slice(0, 2)
+                        .map((w) => w[0]?.toUpperCase() || "")
+                        .join("") || "CC"
+                    )}
+                    <label className="absolute inset-0 rounded-md bg-black/60 opacity-0 group-hover:opacity-100 focus-within:opacity-100 flex items-center justify-center text-white cursor-pointer transition-opacity">
+                      <Camera className="w-4 h-4" strokeWidth={1.75} aria-hidden />
+                      <span className="sr-only">Change profile photo</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleAvatarSelect(file);
+                          e.target.value = "";
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <div>
+                    <strong className="block text-sm text-txt-primary font-display">Profile photo</strong>
+                    <span className="text-xs text-txt-secondary">
+                      PNG, JPEG, WebP or SVG up to 300KB. Stored in this browser only.
+                    </span>
+                  </div>
+                </div>
+                {profilePhoto && (
+                  <button
+                    onClick={handleAvatarRemove}
+                    className="px-2.5 py-1.5 rounded-sm border border-border-main hover:border-hash-red hover:text-hash-red text-txt-secondary text-xs font-semibold cursor-pointer transition-colors"
+                  >
+                    Remove photo
+                  </button>
+                )}
+              </div>
+
+              <div className="border-t border-border-subtle" />
 
               <ToggleRow
                 title="Open to opportunities"
@@ -2027,7 +1903,16 @@ function WalletCredentialCard({
         <h4 className="font-display font-semibold text-sm text-txt-primary leading-snug">
           {credential.title}
         </h4>
-        <p className="text-xs text-txt-secondary mt-1 truncate">{credential.issuer}</p>
+        <p className="text-xs text-txt-secondary mt-1 truncate flex items-center gap-1.5">
+          {getBrandLogo(credential.issuer) && (
+            <img
+              src={getBrandLogo(credential.issuer)!}
+              alt={`${credential.issuer} logo`}
+              className="w-4 h-4 object-contain rounded-sm bg-bg-elevated flex-shrink-0"
+            />
+          )}
+          <span className="truncate">{credential.issuer}</span>
+        </p>
       </div>
 
       {credential.reason && (
@@ -2178,6 +2063,494 @@ function ToggleRow({
           }`}
         />
       </button>
+    </div>
+  );
+}
+
+/* ─────────── Portfolio tab (public candidate page) ─────────── */
+
+interface PortfolioProject {
+  id: number;
+  title: string;
+  desc: string;
+  link: string;
+}
+
+interface SocialLink {
+  platform: "github" | "linkedin" | "twitter" | "website";
+  url: string;
+}
+
+const SOCIAL_META: Record<SocialLink["platform"], { label: string; Icon: React.ComponentType<{ className?: string; strokeWidth?: number }> }> = {
+  github: { label: "GitHub", Icon: Github },
+  linkedin: { label: "LinkedIn", Icon: Linkedin },
+  twitter: { label: "Twitter / X", Icon: Twitter },
+  website: { label: "Website", Icon: Globe },
+};
+
+/** Accept only absolute http(s) URLs — everything else (javascript:, data:, relative) is rejected. */
+function isHttpUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function hostnameOf(raw: string): string {
+  try {
+    return new URL(raw).hostname;
+  } catch {
+    return raw;
+  }
+}
+
+function shortSig(sig: string): string {
+  return sig.length > 12 ? `${sig.slice(0, 6)}…${sig.slice(-4)}` : sig;
+}
+
+function initialsOf(name: string): string {
+  return (
+    name
+      .split(/\s+/)
+      .slice(0, 2)
+      .map((w) => w[0]?.toUpperCase() || "")
+      .join("") || "CC"
+  );
+}
+
+function PortfolioTab({
+  name,
+  headline,
+  bio,
+  skills,
+  photo,
+  email,
+  credentials,
+  sandboxSkills,
+  publicUrl,
+  initialProjects,
+}: {
+  name: string;
+  headline: string;
+  bio: string;
+  skills: string[];
+  photo: string | null;
+  email?: string;
+  credentials: Credential[];
+  sandboxSkills: string[];
+  publicUrl: string;
+  initialProjects: PortfolioProject[];
+}) {
+  const [linkCopied, setLinkCopied] = useState(false);
+
+  // Projects are local-only until a backend route exists; seeded from the
+  // dashboard's existing project fixtures.
+  const [portfolioProjects, setPortfolioProjects] = useState<PortfolioProject[]>(initialProjects);
+  const [projFormOpen, setProjFormOpen] = useState(false);
+  const [projTitle, setProjTitle] = useState("");
+  const [projDesc, setProjDesc] = useState("");
+  const [projLink, setProjLink] = useState("");
+  const [projError, setProjError] = useState<string | null>(null);
+
+  // Social links are local-only editable state rendered as footer icons.
+  const [socials, setSocials] = useState<SocialLink[]>([]);
+  const [socialPlatform, setSocialPlatform] = useState<SocialLink["platform"]>("github");
+  const [socialUrl, setSocialUrl] = useState("");
+  const [socialError, setSocialError] = useState<string | null>(null);
+
+  const verifiedCredentials = credentials.filter((c) => c.status === "verified");
+  const revokedCredentials = credentials.filter((c) => c.status === "revoked");
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(publicUrl);
+    setLinkCopied(true);
+    setTimeout(() => setLinkCopied(false), 2000);
+  };
+
+  const handleAddProject = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!projTitle.trim()) {
+      setProjError("Give the project a title.");
+      return;
+    }
+    if (projLink.trim() && !isHttpUrl(projLink.trim())) {
+      setProjError("Link must be a full http:// or https:// URL.");
+      return;
+    }
+    setPortfolioProjects((prev) => [
+      ...prev,
+      { id: Date.now(), title: projTitle.trim(), desc: projDesc.trim(), link: projLink.trim() },
+    ]);
+    setProjTitle("");
+    setProjDesc("");
+    setProjLink("");
+    setProjError(null);
+    setProjFormOpen(false);
+  };
+
+  const handleAddSocial = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isHttpUrl(socialUrl.trim())) {
+      setSocialError("Enter a full http:// or https:// URL.");
+      return;
+    }
+    setSocials((prev) => [
+      ...prev.filter((s) => s.platform !== socialPlatform),
+      { platform: socialPlatform, url: socialUrl.trim() },
+    ]);
+    setSocialUrl("");
+    setSocialError(null);
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-10">
+      {/* Header: title + section nav + share */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-border-subtle pb-5">
+        <div>
+          <div className="border-l-2 border-role-candidate pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-3">
+            PUBLIC DESK
+          </div>
+          <h1 className="font-display font-bold text-[26px] text-txt-primary tracking-tight">
+            My portfolio.
+          </h1>
+          <p className="text-sm text-txt-secondary mt-1">
+            The verified page employers see at your public link.
+          </p>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          <nav className="hidden md:flex items-center gap-4 text-xs font-mono text-txt-secondary">
+            <a href="#portfolio-credentials" className="hover:text-role-candidate transition-colors">Credentials</a>
+            <a href="#portfolio-projects" className="hover:text-role-candidate transition-colors">Projects</a>
+            <a href="#portfolio-contact" className="hover:text-role-candidate transition-colors">Contact</a>
+          </nav>
+          <button
+            onClick={handleCopyLink}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-brand-purple hover:bg-brand-purple-dim text-white font-semibold text-xs cursor-pointer transition-colors"
+          >
+            {linkCopied ? <Check className="w-3.5 h-3.5" strokeWidth={2.5} /> : <Copy className="w-3.5 h-3.5" />}
+            <span>{linkCopied ? "Link copied" : "Copy public link"}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* About hero */}
+      <div className="flex flex-col sm:flex-row gap-6 items-start">
+        <div className="w-24 h-24 rounded-md bg-role-candidate-soft text-role-candidate font-display font-bold text-3xl flex items-center justify-center overflow-hidden border border-border-main flex-shrink-0">
+          {photo ? (
+            <img src={photo} alt={name} className="w-full h-full object-cover" />
+          ) : (
+            initialsOf(name)
+          )}
+        </div>
+        <div className="space-y-2 min-w-0">
+          <h2 className="font-display font-bold text-[28px] text-txt-primary tracking-tight leading-tight">
+            {name}
+          </h2>
+          <p className="text-xs font-mono text-role-candidate uppercase tracking-[0.08em]">
+            {headline}
+          </p>
+          <p className="text-sm text-txt-secondary leading-relaxed max-w-xl">{bio}</p>
+          {skills.length > 0 && (
+            <div className="flex flex-wrap gap-2 pt-2">
+              {skills.map((s) => (
+                <span
+                  key={s}
+                  className="px-2 py-1 rounded-sm border border-border-main bg-bg-sunken text-role-candidate text-xs font-mono inline-flex items-center gap-1.5"
+                >
+                  <Check className="w-3 h-3 text-hash-green" strokeWidth={2.5} /> {s}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Verified credentials */}
+      <section id="portfolio-credentials" className="space-y-4 scroll-mt-24">
+        <div>
+          <h3 className="font-display font-semibold text-[18px] text-txt-primary">
+            Verified credentials
+          </h3>
+          <p className="text-xs text-txt-secondary mt-1 max-w-lg">
+            Issued directly by accredited institutions on CredChain — the candidate cannot edit, add, or remove these.
+          </p>
+        </div>
+
+        <div className="space-y-3">
+          {verifiedCredentials.length === 0 && revokedCredentials.length === 0 && (
+            <div className="border border-dashed border-border-main rounded-lg p-6 text-center text-txt-muted font-mono text-xs">
+              // No on-chain credentials yet
+            </div>
+          )}
+
+          {verifiedCredentials.map((c) => (
+            <div
+              key={c.id}
+              className="bg-bg-surface border border-border-main rounded-lg p-5 flex flex-col sm:flex-row sm:items-start justify-between gap-3"
+            >
+              <div className="min-w-0">
+                <h4 className="font-display font-semibold text-sm text-txt-primary">{c.title}</h4>
+                <p className="text-xs text-txt-secondary mt-0.5">{c.issuer}</p>
+                <div className="flex items-center gap-4 mt-2 text-[11px] font-mono text-txt-muted flex-wrap">
+                  <span>Issued {c.date}</span>
+                  {c.txSignature && (
+                    <a
+                      href={`https://explorer.solana.com/tx/${c.txSignature}?cluster=devnet`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-role-candidate hover:text-txt-primary inline-flex items-center gap-1"
+                    >
+                      Tx {shortSig(c.txSignature)} <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+              </div>
+              <span className="inline-flex items-center gap-1.5 text-[10px] font-mono uppercase font-semibold px-2 py-1 rounded-sm border text-hash-green border-hash-green/30 flex-shrink-0 self-start">
+                <ShieldCheck className="w-3 h-3" strokeWidth={2} /> Verified
+              </span>
+            </div>
+          ))}
+
+          {revokedCredentials.map((c) => (
+            <div
+              key={c.id}
+              className="bg-bg-surface border border-border-main rounded-lg p-5 flex flex-col sm:flex-row sm:items-start justify-between gap-3 opacity-60"
+            >
+              <div className="min-w-0">
+                <h4 className="font-display font-semibold text-sm text-txt-muted line-through">
+                  {c.title}
+                </h4>
+                <p className="text-xs text-txt-muted mt-0.5">{c.issuer}</p>
+                <div className="flex items-center gap-4 mt-2 text-[11px] font-mono text-txt-muted flex-wrap">
+                  <span>Issued {c.date}</span>
+                  {c.txSignature && (
+                    <a
+                      href={`https://explorer.solana.com/tx/${c.txSignature}?cluster=devnet`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="hover:text-txt-secondary inline-flex items-center gap-1"
+                    >
+                      Tx {shortSig(c.txSignature)} <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+              </div>
+              <span className="inline-flex items-center text-[10px] font-mono uppercase font-semibold px-2 py-1 rounded-sm border text-hash-red border-hash-red/30 flex-shrink-0 self-start">
+                Revoked
+              </span>
+            </div>
+          ))}
+
+          {sandboxSkills.length > 0 && (
+            <div className="bg-bg-surface border border-border-main rounded-lg p-5">
+              <p className="text-[11px] font-mono text-txt-muted uppercase tracking-wider mb-3">
+                Self-declared skills — not institution-verified
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {sandboxSkills.map((s) => (
+                  <span
+                    key={s}
+                    className="px-2 py-1 rounded-full border border-border-subtle text-txt-muted text-[11px] font-mono inline-flex items-center gap-1.5"
+                  >
+                    {s}
+                    <span className="text-[9px] uppercase tracking-wider border-l border-border-subtle pl-1.5">
+                      unverified
+                    </span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Projects */}
+      <section id="portfolio-projects" className="space-y-4 scroll-mt-24">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h3 className="font-display font-semibold text-[18px] text-txt-primary">
+              Portfolio & projects
+            </h3>
+            <p className="text-xs text-txt-secondary mt-1 max-w-lg">
+              Self-reported work samples added by the candidate — unlike the credentials above, these are not institution-verified.
+            </p>
+          </div>
+          <button
+            onClick={() => {
+              setProjFormOpen((o) => !o);
+              setProjError(null);
+            }}
+            className="text-xs font-mono text-role-candidate hover:text-txt-primary cursor-pointer flex-shrink-0"
+          >
+            {projFormOpen ? "− Cancel" : "+ Add project"}
+          </button>
+        </div>
+
+        {projFormOpen && (
+          <form
+            onSubmit={handleAddProject}
+            className="bg-bg-surface border border-border-main rounded-lg p-5 space-y-3"
+          >
+            <FormField label="Title">
+              <TextInput required placeholder="e.g. Campus Marketplace" value={projTitle} onChange={setProjTitle} />
+            </FormField>
+            <FormField label="Description">
+              <TextInput placeholder="One-line summary of the project" value={projDesc} onChange={setProjDesc} />
+            </FormField>
+            <FormField label="Link (optional, https only)">
+              <TextInput placeholder="https://github.com/you/project" value={projLink} onChange={setProjLink} mono />
+            </FormField>
+            {projError && (
+              <p className="text-[11px] font-mono text-hash-red flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {projError}
+              </p>
+            )}
+            <button
+              type="submit"
+              className="px-4 py-2 rounded-md bg-brand-purple hover:bg-brand-purple-dim text-white font-semibold text-xs cursor-pointer transition-colors"
+            >
+              Add project
+            </button>
+          </form>
+        )}
+
+        {portfolioProjects.length === 0 ? (
+          <div className="border border-dashed border-border-main rounded-lg p-6 text-center text-txt-muted font-mono text-xs">
+            // No projects added yet
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {portfolioProjects.map((p) => (
+              <div
+                key={p.id}
+                className="bg-bg-surface border border-border-main rounded-lg p-5 flex flex-col gap-3 hover:border-border-strong transition-colors"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-[10px] font-mono text-txt-muted border border-border-subtle rounded-full px-2 py-0.5">
+                    Self-reported
+                  </span>
+                  <button
+                    onClick={() =>
+                      setPortfolioProjects((prev) => prev.filter((pr) => pr.id !== p.id))
+                    }
+                    className="text-txt-muted hover:text-hash-red p-0.5 cursor-pointer"
+                    aria-label={`Remove ${p.title}`}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex-1">
+                  <h4 className="font-display font-semibold text-sm text-txt-primary">{p.title}</h4>
+                  <p className="text-xs text-txt-secondary mt-1 leading-relaxed">
+                    {p.desc || "No description added yet."}
+                  </p>
+                </div>
+                {p.link && isHttpUrl(p.link) && (
+                  <a
+                    href={p.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 self-start px-2 py-1 rounded-sm border border-border-main bg-bg-sunken text-role-candidate hover:border-role-candidate text-[11px] font-mono transition-colors"
+                  >
+                    {hostnameOf(p.link)} <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* Contact */}
+      <section id="portfolio-contact" className="text-center space-y-2 scroll-mt-24">
+        <h3 className="font-display font-semibold text-[18px] text-txt-primary">Get in touch</h3>
+        {email ? (
+          <a
+            href={`mailto:${email}`}
+            className="inline-flex items-center gap-2 text-sm text-role-candidate hover:text-txt-primary font-mono transition-colors"
+          >
+            <Mail className="w-4 h-4" strokeWidth={1.75} /> {email}
+          </a>
+        ) : (
+          <p className="text-xs text-txt-muted font-mono">// No contact email on file</p>
+        )}
+      </section>
+
+      {/* Footer socials */}
+      <footer className="border-t border-border-subtle pt-6 pb-2 space-y-4">
+        <div className="flex items-center justify-center gap-4">
+          {socials.length === 0 && (
+            <span className="text-[11px] font-mono text-txt-muted">
+              // Add social links below
+            </span>
+          )}
+          {socials.map(({ platform, url }) => {
+            const { label, Icon } = SOCIAL_META[platform];
+            return (
+              <span key={platform} className="inline-flex items-center gap-1">
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={`${label} — ${hostnameOf(url)}`}
+                  className="p-2 rounded-md border border-border-main text-txt-secondary hover:text-role-candidate hover:border-role-candidate transition-colors"
+                >
+                  <Icon className="w-4 h-4" strokeWidth={1.75} />
+                </a>
+                <button
+                  onClick={() => setSocials((prev) => prev.filter((s) => s.platform !== platform))}
+                  className="text-txt-muted hover:text-hash-red cursor-pointer"
+                  aria-label={`Remove ${label} link`}
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            );
+          })}
+        </div>
+
+        <form onSubmit={handleAddSocial} className="max-w-md mx-auto flex items-start gap-2">
+          <select
+            value={socialPlatform}
+            onChange={(e) => setSocialPlatform(e.target.value as SocialLink["platform"])}
+            className="bg-bg-sunken border border-border-main rounded-md p-2.5 text-xs text-txt-primary focus:outline-none focus:border-role-candidate"
+          >
+            {(Object.keys(SOCIAL_META) as SocialLink["platform"][]).map((k) => (
+              <option key={k} value={k}>
+                {SOCIAL_META[k].label}
+              </option>
+            ))}
+          </select>
+          <div className="flex-1">
+            <TextInput
+              placeholder="https://github.com/yourname"
+              value={socialUrl}
+              onChange={(v) => {
+                setSocialUrl(v);
+                setSocialError(null);
+              }}
+              mono
+            />
+            {socialError && (
+              <p className="text-[11px] font-mono text-hash-red mt-1.5 flex items-center gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0" /> {socialError}
+              </p>
+            )}
+          </div>
+          <button
+            type="submit"
+            className="px-3 py-2.5 rounded-md border border-border-main hover:border-role-candidate text-txt-secondary hover:text-txt-primary text-xs font-semibold cursor-pointer transition-colors"
+          >
+            Add
+          </button>
+        </form>
+
+        <p className="text-center text-[11px] font-mono text-txt-muted">
+          Verified on CredChain
+        </p>
+      </footer>
     </div>
   );
 }

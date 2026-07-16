@@ -9,6 +9,7 @@ import {
   rateCounterparty,
   submitToGlobalBounty,
 } from "../../services/api";
+import { getBrandLogo } from "../../lib/brandLogos";
 
 // Earn tab — the "Bounties" surface from the pitch deck.
 // Reads getBounties() (live: GET /api/v1/bounties, mock: fixtures) and completes
@@ -376,8 +377,16 @@ function BountyCard({
       {/* Head */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-md bg-bg-elevated border border-border-main flex items-center justify-center text-lg shrink-0">
-            {b.companyLogo || (isGlobal ? <Globe className="w-4 h-4 text-txt-muted" /> : "🏷️")}
+          <div className="w-10 h-10 rounded-md bg-bg-elevated border border-border-main flex items-center justify-center text-lg shrink-0 overflow-hidden">
+            {getBrandLogo(b.company) ? (
+              <img
+                src={getBrandLogo(b.company)!}
+                alt={`${b.company} logo`}
+                className="w-full h-full object-contain p-1.5"
+              />
+            ) : (
+              b.companyLogo || (isGlobal ? <Globe className="w-4 h-4 text-txt-muted" /> : "🏷️")
+            )}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">

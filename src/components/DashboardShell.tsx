@@ -1,6 +1,6 @@
 import { useState, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { Menu, X, Bell, Search, LogOut } from "lucide-react";
+import { Menu, X, Bell, Search, LogOut, Camera } from "lucide-react";
 import Logo from "./Logo";
 import ThemeToggle from "./ThemeToggle";
 
@@ -23,6 +23,8 @@ export interface ShellUser {
   subtitle?: string;
   initials?: string;
   photo?: string | null;
+  /** "contain" for logo-style photos that must not be cropped (default "cover"). */
+  photoFit?: "cover" | "contain";
 }
 
 interface DashboardShellProps {
@@ -43,6 +45,8 @@ interface DashboardShellProps {
   /** Number of unread notifications to show on the bell. */
   notificationCount?: number;
   onNotificationsClick?: () => void;
+  /** When set, the sidebar avatar becomes an upload target for a new profile photo. */
+  onAvatarSelect?: (file: File) => void;
   onLogout?: () => void;
   children: ReactNode;
 }
@@ -88,6 +92,7 @@ export default function DashboardShell({
   searchPlaceholder = "Search…",
   notificationCount,
   onNotificationsClick,
+  onAvatarSelect,
   onLogout,
   children,
 }: DashboardShellProps) {
@@ -181,12 +186,35 @@ export default function DashboardShell({
         {/* Bottom: User pill + logout */}
         <div className="border-t border-border-subtle p-4 flex items-center gap-3">
           <div
-            className={`w-9 h-9 rounded-md flex items-center justify-center font-mono text-sm font-semibold ${accent.bg} ${accent.text} border border-border-main flex-shrink-0 overflow-hidden relative`}
+            className={`group w-9 h-9 rounded-md flex items-center justify-center font-mono text-sm font-semibold ${accent.bg} ${accent.text} border border-border-main flex-shrink-0 overflow-hidden relative`}
           >
             {user.photo ? (
-              <img src={user.photo} alt={user.name} className="w-full h-full object-cover" />
+              <img
+                src={user.photo}
+                alt={user.name}
+                className={`w-full h-full ${user.photoFit === "contain" ? "object-contain p-0.5" : "object-cover"}`}
+              />
             ) : (
               initials
+            )}
+            {onAvatarSelect && (
+              <label
+                className="absolute inset-0 rounded-md bg-black/60 opacity-0 group-hover:opacity-100 focus-within:opacity-100 flex items-center justify-center text-white cursor-pointer transition-opacity"
+                title="Change profile photo"
+              >
+                <Camera className="w-3.5 h-3.5" strokeWidth={1.75} aria-hidden />
+                <span className="sr-only">Change profile photo</span>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) onAvatarSelect(file);
+                    e.target.value = "";
+                  }}
+                />
+              </label>
             )}
           </div>
           <div className="flex-1 min-w-0">

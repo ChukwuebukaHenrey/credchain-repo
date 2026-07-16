@@ -32,6 +32,7 @@ import { TalentEntry, normalizeTalent, useShortlist } from "../components/verifi
 import TalentCard from "../components/verifier/TalentCard";
 import ChatDrawer, { ChatRoom, roomCounterpart } from "../components/verifier/ChatDrawer";
 import BountiesTab, { Bounty } from "../components/verifier/BountiesTab";
+import { getAvatarFor, saveAvatar, validateAvatarFile, readAvatarFile } from "../lib/avatars";
 
 type Tab = "verify" | "shortlist" | "bounties" | "logs" | "api" | "settings" | "help";
 
@@ -55,6 +56,8 @@ export default function VerifierDashboard() {
   const [query, setQuery] = useState("");
 
   // ── Display identity from AuthContext (no raw localStorage parsing) ──
+  // avatarVersion bumps after an upload so the memo re-reads localStorage.
+  const [avatarVersion, setAvatarVersion] = useState(0);
   const verifierUser = useMemo(() => {
     const name = authUser?.name || "Verifier";
     const comp = authUser?.company || "CredChain";
@@ -67,9 +70,29 @@ export default function VerifierDashboard() {
       name,
       subtitle: `${comp} · Verifier`,
       initials: initials || "VF",
-      photo: authUser?.photo || localStorage.getItem("credchain_profile_photo"),
+      photo:
+        getAvatarFor({ id: myUserId || "demo-verifier", email: authUser?.email, name }) ||
+        authUser?.photo ||
+        localStorage.getItem("credchain_profile_photo"),
     };
-  }, [authUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authUser, myUserId, avatarVersion]);
+
+  // Client-side avatar upload — data-URL under cc_avatar_<userId>, per-browser.
+  const handleAvatarSelect = async (file: File) => {
+    const error = validateAvatarFile(file);
+    if (error) {
+      alert(error);
+      return;
+    }
+    try {
+      const dataUrl = await readAvatarFile(file);
+      saveAvatar(myUserId || "demo-verifier", dataUrl);
+      setAvatarVersion((v) => v + 1);
+    } catch (err: any) {
+      alert(err?.message || "Could not read the selected image.");
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem("credchain_role", "verifier");
@@ -340,6 +363,7 @@ export default function VerifierDashboard() {
       onSearchChange={setSearchQuery}
       searchPlaceholder="Search candidate profiles…"
       notificationCount={unlockedRooms || undefined}
+      onAvatarSelect={handleAvatarSelect}
       onLogout={handleLogout}
       topbarRightExtra={
         <>

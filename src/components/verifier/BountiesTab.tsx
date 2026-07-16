@@ -30,6 +30,7 @@ import {
   rateCounterparty,
   selectWinners,
 } from "../../services/api";
+import { getBrandLogo } from "../../lib/brandLogos";
 import { tierBadgeClass } from "./talent";
 
 // Bounties tab (employer side) — full lifecycle over /api/v1/bounties:
@@ -41,6 +42,8 @@ export interface Bounty {
   id: string;
   title: string;
   description: string;
+  company?: string;
+  companyLogo?: string;
   skillName?: string;
   skillCategory?: string;
   skillTags?: string[];
@@ -251,7 +254,21 @@ function BountyRow({
     <div className="bg-bg-surface border border-border-main rounded-lg overflow-hidden">
       <div className="p-5">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          <div className="flex items-start gap-3 min-w-0">
+            {(getBrandLogo(b.company) || b.companyLogo) && (
+              <div className="w-8 h-8 rounded-md bg-bg-elevated border border-border-main flex items-center justify-center text-base shrink-0 overflow-hidden">
+                {getBrandLogo(b.company) ? (
+                  <img
+                    src={getBrandLogo(b.company)!}
+                    alt={`${b.company} logo`}
+                    className="w-full h-full object-contain p-1"
+                  />
+                ) : (
+                  b.companyLogo
+                )}
+              </div>
+            )}
+            <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 mb-1.5">
               <h3 className="text-sm font-semibold text-txt-primary">{b.title}</h3>
               <span className={`inline-flex items-center px-2 py-0.5 rounded-sm border text-[10px] font-mono uppercase font-semibold ${statusBadge(b.status)}`}>
@@ -276,6 +293,7 @@ function BountyRow({
               )}
             </div>
             <p className="text-xs text-txt-secondary leading-relaxed line-clamp-2">{b.description}</p>
+          </div>
           </div>
           <div className="text-right flex-shrink-0">
             <div className="font-display text-lg font-bold text-role-issuer">{b.reward || (b.rewardUSD ? `$${b.rewardUSD.toLocaleString()}` : "—")}</div>
