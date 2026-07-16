@@ -1,5 +1,7 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-pydantic==2.9.2
-openai==1.47.0
-requests==2.32.3
+# Minimum working versions for Python 3.14 (the previous == pins predate
+# cp314 wheels and fail to source-build). Verified working 2026-07-16.
+fastapi>=0.139
+uvicorn[standard]>=0.51
+pydantic>=2.13
+openai>=2.45
+requests>=2.34

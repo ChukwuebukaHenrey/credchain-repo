@@ -1,6 +1,8 @@
-fastapi==0.115.0
-uvicorn[standard]==0.30.6
-pydantic==2.9.2
-fpdf2==2.7.9
-pillow==10.4.0
-requests==2.32.3
+# Minimum working versions for Python 3.14 (the previous == pins predate
+# cp314 wheels and fail to source-build). Verified working 2026-07-16.
+fastapi>=0.139
+uvicorn[standard]>=0.51
+pydantic>=2.13
+fpdf2>=2.8
+pillow>=12
+requests>=2.34
