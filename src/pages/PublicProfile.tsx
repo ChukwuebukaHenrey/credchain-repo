@@ -47,7 +47,7 @@ function normalizeProfile(p: any, routeId: string): CandidateProfile {
   return {
     id: p.credchainId || p.candidateId || p.id || routeId,
     name: p.name || "Candidate",
-    photo: p.photo,
+    photo: p.avatar || p.photo,
     bio: p.bio,
     skills: Array.isArray(p.skills) ? p.skills : [],
     credentials: creds

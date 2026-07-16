@@ -55,7 +55,7 @@ import { getTheme, toggleTheme, Theme } from "../services/theme";
 import { useAuth } from "../context/AuthContext";
 import { disconnectSocket } from "../services/socket";
 import { Github, Linkedin, Twitter, Globe, Mail } from "lucide-react";
-import { getAvatarFor, loadAvatar, saveAvatar, clearAvatar, validateAvatarFile, readAvatarFile } from "../lib/avatars";
+import { getAvatarFor, loadAvatar, saveAvatar, clearAvatar, validateAvatarFile, readAvatarFile, syncAvatarToBackend } from "../lib/avatars";
 import { getBrandLogo } from "../lib/brandLogos";
 
 type TabType =
@@ -216,8 +216,8 @@ export default function CandidateDashboard() {
   const userId = authUser?.id || "demo-candidate";
 
   // Resolve avatar once identity is known: per-user upload → legacy key →
-  // seeded demo image (Amara/Emeka). Uploads are client-side only (no backend
-  // avatar field), stored as data-URLs under cc_avatar_<userId>.
+  // seeded demo image (Amara/Emeka). Uploads are stored as data-URLs under
+  // cc_avatar_<userId> and synced best-effort to the backend for public links.
   useEffect(() => {
     const resolved =
       loadAvatar(userId) ||
@@ -236,6 +236,9 @@ export default function CandidateDashboard() {
       const dataUrl = await readAvatarFile(file);
       saveAvatar(userId, dataUrl);
       setProfilePhoto(dataUrl);
+      // Best-effort push to the backend so the shared public portfolio
+      // (/verify/:credchainId) shows the photo too.
+      void syncAvatarToBackend(userId, dataUrl);
     } catch (err: any) {
       alert(err?.message || "Could not read the selected image.");
     }

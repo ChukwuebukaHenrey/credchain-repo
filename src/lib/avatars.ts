@@ -1,13 +1,16 @@
 // Client-side avatar store.
 //
-// The backend User model has no avatar/photo field and no upload route, so
-// avatars are persisted per-browser: FileReader → data-URL → localStorage
-// under `cc_avatar_<userId>`. Seeded demo identities (Amara, Emeka, FUTO)
-// fall back to bundled images when no upload exists.
+// Avatars are persisted per-browser: FileReader → data-URL → localStorage
+// under `cc_avatar_<userId>`. localStorage stays the source of truth for
+// instant UI; student avatars are additionally synced best-effort to the
+// backend (User.avatar) so shared public portfolio links can show them.
+// Seeded demo identities (Amara, Emeka, FUTO) fall back to bundled images
+// when no upload exists.
 
 import amaraAvatar from "../assets/avatars/amara.jpg";
 import emekaAvatar from "../assets/avatars/emeka.jpg";
 import futoLogo from "../assets/logos/futo.png";
+import { updateStudentProfile } from "../services/api";
 
 const KEY_PREFIX = "cc_avatar_";
 
@@ -42,6 +45,19 @@ export function clearAvatar(userId: string): void {
     localStorage.removeItem(`${KEY_PREFIX}${userId}`);
   } catch {
     // ignore
+  }
+}
+
+/**
+ * Best-effort sync of a student's avatar to the backend so shared public
+ * portfolio links (/verify/:credchainId) can render it. localStorage remains
+ * the source of truth for instant UI — failures here are swallowed.
+ */
+export async function syncAvatarToBackend(userId: string, dataUrl: string): Promise<void> {
+  try {
+    await updateStudentProfile({ id: userId, avatar: dataUrl });
+  } catch {
+    // Offline / mock mode / validation failure — local avatar still works.
   }
 }
 
