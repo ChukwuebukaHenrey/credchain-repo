@@ -28,6 +28,10 @@ const userSchema = new mongoose.Schema(
     skills: [{ type: String }],
     links: [{ type: String }],
 
+    // Profile image: data-URL or https URL. Size is capped client-side
+    // (~300KB before upload) and server-side by the 5MB JSON body limit.
+    avatar: { type: String },
+
     // ── Reputation (vouch economy) ────────────────────────────────────
     // A user's standing on the platform. Only users at/above the vouch
     // threshold (60) may stake reputation to attest another student's

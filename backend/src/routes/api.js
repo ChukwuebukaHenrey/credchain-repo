@@ -194,6 +194,7 @@ router.get('/student/:id', async (req, res) => {
         name: user.name,
         credchainId: user.credchainId,
         bio: user.bio || '',
+        avatar: user.avatar || null,
         skills: user.skills || [],
         links: user.links || [],
         credentials: credentials.map(publicCredential),
@@ -209,7 +210,7 @@ router.get('/student/:id', async (req, res) => {
 // The frontend sends the user id alongside the fields to update.
 router.put('/student/profile', async (req, res) => {
   try {
-    const { id, bio, skills, links } = req.body || {};
+    const { id, bio, skills, links, avatar } = req.body || {};
     if (!id) {
       return res.status(400).json({ success: false, message: 'A user id is required.' });
     }
@@ -218,6 +219,20 @@ router.put('/student/profile', async (req, res) => {
     if (bio !== undefined) update.bio = bio;
     if (skills !== undefined) update.skills = skills;
     if (links !== undefined) update.links = links;
+    if (avatar !== undefined) {
+      const isValidAvatar =
+        typeof avatar === 'string' &&
+        avatar.length <= 500000 &&
+        (/^data:image\/(png|jpeg|webp|svg\+xml);base64,/.test(avatar) ||
+          /^https?:\/\//.test(avatar));
+      if (!isValidAvatar) {
+        return res.status(400).json({
+          success: false,
+          message: 'avatar must be a data:image/(png|jpeg|webp|svg+xml);base64 or http(s) URL string of at most 500000 characters.',
+        });
+      }
+      update.avatar = avatar;
+    }
 
     const user = await User.findByIdAndUpdate(id, update, { new: true });
     if (!user) {
@@ -232,6 +247,7 @@ router.put('/student/profile', async (req, res) => {
         bio: user.bio || '',
         skills: user.skills || [],
         links: user.links || [],
+        avatar: user.avatar || null,
       },
     });
   } catch (err) {
@@ -261,6 +277,7 @@ router.get('/student/profile/:credchainId', async (req, res) => {
         credchainId: user.credchainId,
         name: user.name,
         headline: 'Verified on CredChain',
+        avatar: user.avatar || null,
         skills: user.skills || [],
         credentials: credentials.map(publicCredential),
       },
