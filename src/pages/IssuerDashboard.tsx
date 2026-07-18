@@ -31,6 +31,9 @@ import { loadAvatar, saveAvatar, validateAvatarFile, readAvatarFile, getAvatarFo
 import { getBrandLogo } from "../lib/brandLogos";
 import BatchSigner from "../components/issuer/BatchSigner";
 import GetVerifiedFlow from "../components/issuer/GetVerifiedFlow";
+import IssueCredentialTab, { IssuedCredential } from "../components/issuer/IssueCredentialTab";
+import RevokeCredentialTab from "../components/issuer/RevokeCredentialTab";
+import ResultsAnalytics from "../components/issuer/ResultsAnalytics";
 
 interface RequestItem {
   id: string;
@@ -55,13 +58,14 @@ interface SessionCredential {
   revokedTxSignature?: string;
 }
 
-type Tab = "requests" | "history" | "batch" | "verify" | "qr" | "settings" | "help";
+type Tab = "verify" | "requests" | "issue" | "revoke" | "history" | "batch" | "qr" | "settings" | "help";
 type FilterTab = "all" | "pending" | "approved" | "denied";
 
 export default function IssuerDashboard() {
   const { user: authUser, logout } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState<Tab>("requests");
+  // Opens on the Get Verified onboarding funnel (monorepo IssuerPortal parity).
+  const [activeTab, setActiveTab] = useState<Tab>("verify");
   const [searchQuery, setSearchQuery] = useState("");
   const [filterTab, setFilterTab] = useState<FilterTab>("all");
 
@@ -134,8 +138,35 @@ export default function IssuerDashboard() {
 
   // Credentials really issued this session (from issueVerifiedCredential responses).
   const [sessionCreds, setSessionCreds] = useState<SessionCredential[]>([]);
+  // Full credential objects for the Issue → Revoke tab bridge (monorepo
+  // IssuerPortal pattern: issued list is shared with the Revocation Registry).
+  const [issuedCreds, setIssuedCreds] = useState<IssuedCredential[]>([]);
   const [revokingId, setRevokingId] = useState<string | null>(null);
   const [badgePreviewId, setBadgePreviewId] = useState<string | null>(null);
+
+  // Called by IssueCredentialTab (single + auto-issuer) — feed both the
+  // revocation registry and the session history table.
+  const addIssued = (cred: IssuedCredential) => {
+    setIssuedCreds((prev) => [cred, ...prev]);
+    setSessionCreds((prev) => [
+      {
+        id: cred.id,
+        title: cred.title,
+        recipient: cred.recipientEmail || "—",
+        trustTier: cred.trustTier,
+        status: cred.status || "pending",
+        date: new Date().toISOString().slice(0, 10),
+      },
+      ...prev,
+    ]);
+  };
+
+  const markRevoked = (id: string, revokedTxSignature?: string) => {
+    setIssuedCreds((prev) => prev.map((c) => (c.id === id ? { ...c, status: "revoked" } : c)));
+    setSessionCreds((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, status: "revoked", revokedTxSignature } : c))
+    );
+  };
 
   // NOTE: there is NO backend route for "incoming credential requests from
   // students" — this queue stays mock/local. Only the issue action is live.
@@ -192,6 +223,7 @@ export default function IssuerDashboard() {
       if (!cred?.id && !cred?._id) throw new Error(res?.message || "Backend did not return a credential.");
       const credId = String(cred.id || cred._id);
       setIssuedResult({ id: credId, trustTier: cred.trustTier, status: cred.status || "pending" });
+      setIssuedCreds((prev) => [{ ...cred, id: credId }, ...prev]);
       setSessionCreds((prev) => [
         {
           id: credId,
@@ -231,13 +263,7 @@ export default function IssuerDashboard() {
     try {
       const res = await revokeCredential(credentialId);
       const revoked = res?.credential;
-      setSessionCreds((prev) =>
-        prev.map((c) =>
-          c.id === credentialId
-            ? { ...c, status: "revoked", revokedTxSignature: revoked?.revokedTxSignature }
-            : c
-        )
-      );
+      markRevoked(credentialId, revoked?.revokedTxSignature);
       showToast("Credential revoked on-chain.", "danger");
     } catch (e: any) {
       showToast(e?.message || "Revocation failed — please try again.", "danger");
@@ -250,9 +276,17 @@ export default function IssuerDashboard() {
 
   const navGroups: NavGroup[] = [
     {
+      label: "ONBOARDING",
+      items: [
+        { id: "verify", label: "Get Verified", icon: <ShieldCheck className="w-4 h-4" strokeWidth={1.75} /> },
+      ],
+    },
+    {
       label: "REGISTRAR DESK",
       items: [
-        { id: "requests", label: "Incoming Requests", icon: <FileCheck className="w-4 h-4" strokeWidth={1.75} />, badge: pendingCount },
+        { id: "requests", label: "Overview & Requests", icon: <FileCheck className="w-4 h-4" strokeWidth={1.75} />, badge: pendingCount },
+        { id: "issue", label: "Issue New Credential", icon: <Plus className="w-4 h-4" strokeWidth={1.75} /> },
+        { id: "revoke", label: "Revoke Credential", icon: <Ban className="w-4 h-4" strokeWidth={1.75} /> },
         { id: "history", label: "Issued History", icon: <Clock className="w-4 h-4" strokeWidth={1.75} /> },
         { id: "batch", label: "Batch Signer", icon: <Wand2 className="w-4 h-4" strokeWidth={1.75} /> },
       ],
@@ -260,7 +294,6 @@ export default function IssuerDashboard() {
     {
       label: "INSTITUTIONAL",
       items: [
-        { id: "verify", label: "Get Verified", icon: <ShieldCheck className="w-4 h-4" strokeWidth={1.75} /> },
         { id: "qr", label: "Institutional QR", icon: <QrCode className="w-4 h-4" strokeWidth={1.75} /> },
       ],
     },
@@ -373,7 +406,12 @@ export default function IssuerDashboard() {
                 <QuickActionButton
                   icon={<Plus className="w-4 h-4" strokeWidth={1.75} />}
                   label="Issue new credential"
-                  onClick={() => setActiveTab("requests")}
+                  onClick={() => setActiveTab("issue")}
+                />
+                <QuickActionButton
+                  icon={<Ban className="w-4 h-4" strokeWidth={1.75} />}
+                  label="Revoke a credential"
+                  onClick={() => setActiveTab("revoke")}
                 />
                 <QuickActionButton
                   icon={<UploadCloud className="w-4 h-4" strokeWidth={1.75} />}
@@ -392,6 +430,19 @@ export default function IssuerDashboard() {
                 />
               </div>
             </div>
+          </div>
+
+          {/* Monorepo "Your Results" reputation analytics — placed in Overview */}
+          <div className="space-y-4">
+            <div className="border-b border-border-subtle pb-4">
+              <div className="font-display font-semibold text-[18px] text-txt-primary">
+                Your results
+              </div>
+              <p className="text-xs text-txt-secondary mt-1">
+                Real outcomes from your people — ready to share and show off.
+              </p>
+            </div>
+            <ResultsAnalytics />
           </div>
 
           {/* Filter tabs */}
@@ -511,6 +562,14 @@ export default function IssuerDashboard() {
             </div>
           )}
         </div>
+      )}
+
+      {activeTab === "issue" && (
+        <IssueCredentialTab onIssued={addIssued} onGoVerify={() => setActiveTab("verify")} />
+      )}
+
+      {activeTab === "revoke" && (
+        <RevokeCredentialTab issued={issuedCreds} onRevoked={markRevoked} />
       )}
 
       {activeTab === "history" && (

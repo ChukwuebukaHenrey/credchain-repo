@@ -36,20 +36,27 @@ import {
   ArrowRight,
   Wifi,
   Signal,
+  Flag,
+  MessageSquare,
 } from "lucide-react";
 import DashboardShell, { NavGroup } from "../components/DashboardShell";
 import EarnTab from "../components/candidate/EarnTab";
 import TrustTab from "../components/candidate/TrustTab";
+import NigeriaTab from "../components/candidate/NigeriaTab";
+import MessagesTab from "../components/candidate/MessagesTab";
 import {
   getCandidate,
   getNotifications,
   getQRCode,
   buildResume,
+  generateInsights,
   getWhitelistedInstitutions,
   getStudentPortfolio,
   acceptCredential,
   rejectCredential,
   disputeCredential,
+  addSandboxSkill,
+  disputeAttestation,
 } from "../services/api";
 import { getTheme, toggleTheme, Theme } from "../services/theme";
 import { useAuth } from "../context/AuthContext";
@@ -57,6 +64,8 @@ import { disconnectSocket } from "../services/socket";
 import { Github, Linkedin, Twitter, Globe, Mail } from "lucide-react";
 import { getAvatarFor, loadAvatar, saveAvatar, clearAvatar, validateAvatarFile, readAvatarFile, syncAvatarToBackend } from "../lib/avatars";
 import { getBrandLogo } from "../lib/brandLogos";
+import { computeCredScore } from "../lib/credscore";
+import { CredScoreCard, PendingApprovals, ProofModal, ProofPathways, SkillTrustLedgers, VaultSection } from "../components/candidate/Vault";
 
 type TabType =
   | "dashboard"
@@ -64,6 +73,8 @@ type TabType =
   | "request"
   | "resume"
   | "earn"
+  | "nigeria"
+  | "messages"
   | "trust"
   | "portfolio"
   | "qr"
@@ -154,6 +165,15 @@ export default function CandidateDashboard() {
   );
   const [generatingResume, setGeneratingResume] = useState(false);
   const [generatedResumeHtml, setGeneratedResumeHtml] = useState<string | null>(null);
+  // Live mode: the verified CV comes back as a PDF blob — preview it inline
+  // (object URL in an <iframe>) and only download on "Export PDF".
+  const [generatedResumePdf, setGeneratedResumePdf] = useState<{ url: string; filename: string } | null>(null);
+  const [resumeError, setResumeError] = useState<string | null>(null);
+  // AI career insights (backend → ai-insights-engine). Rendered as a preview
+  // panel — never auto-downloaded.
+  const [insights, setInsights] = useState<any | null>(null);
+  const [insightsLoading, setInsightsLoading] = useState(false);
+  const [insightsError, setInsightsError] = useState<string | null>(null);
   const [refFiles, setRefFiles] = useState<{ id: number; name: string; status: "processing" | "ready" }[]>([
     { id: 1, name: "Academic_Transcript_Unofficial.pdf", status: "ready" },
     { id: 2, name: "Solana_Bootcamp_Certificate.jpg", status: "ready" },
@@ -376,6 +396,29 @@ export default function CandidateDashboard() {
     navigate("/login");
   };
 
+  // ── Two-tier trust ledger actions (monorepo TwoTierLedger parity) ──
+  const handleAddSandboxSkill = async (form: { skillName: string; source: string; link: string }) => {
+    await addSandboxSkill(form.skillName, form.source, form.link);
+    await refetchStudent();
+  };
+
+  const handleDisputeAttested = async (attestedIndex: number) => {
+    const reason = window.prompt(
+      "In a sentence, why should this vouch be removed? An independent CredChain reviewer looks at it — not the person who vouched.",
+      "This attestation is inaccurate."
+    );
+    if (reason === null) return;
+    try {
+      await disputeAttestation(userId, attestedIndex, reason);
+      setCredActionMsg("Dispute filed — this attestation is now under independent review.");
+      await refetchStudent();
+    } catch (err: any) {
+      setCredActionMsg(`Could not file the dispute: ${err?.message || "request failed"}`);
+    } finally {
+      setTimeout(() => setCredActionMsg(null), 8000);
+    }
+  };
+
   const unreadNotifsCount = notifications.filter((n) => !n.read).length;
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -392,15 +435,48 @@ export default function CandidateDashboard() {
 
   const handleGenerateResumeSubmit = async () => {
     setGeneratingResume(true);
+    setResumeError(null);
     try {
-      const res = await buildResume(userId, resumePrompt);
-      setGeneratedResumeHtml(res.resume_html);
-    } catch (err) {
-      setGeneratedResumeHtml(
-        "<h3>Emeka Obi</h3><p>B.Eng Computer Engineering · Verified on Solana.</p><p>Blockchain-verified Computer Engineering graduate with verified core competencies in smart contract development, frontend engineering, and cryptographic verification loops.</p>"
-      );
+      const res: any = await buildResume(userId, resumePrompt);
+      if (res?.pdfUrl) {
+        // Live backend: preview the real PDF inline; Export PDF saves it.
+        if (generatedResumePdf?.url) URL.revokeObjectURL(generatedResumePdf.url);
+        setGeneratedResumePdf({ url: res.pdfUrl, filename: res.filename || "credchain-verified-cv.pdf" });
+        setGeneratedResumeHtml(null);
+      } else {
+        // Mock branch returns HTML.
+        setGeneratedResumeHtml(res?.resume_html || null);
+        setGeneratedResumePdf(null);
+      }
+    } catch (err: any) {
+      // Surface the REAL failure (e.g. 409 "no blockchain-verified credentials
+      // yet", or the CV engine on :8001 being down) instead of a fake resume.
+      setResumeError(err?.message || "CV generation failed. Is the CV engine running?");
     } finally {
       setGeneratingResume(false);
+    }
+  };
+
+  const handleExportResumePdf = () => {
+    if (!generatedResumePdf) return;
+    const a = document.createElement("a");
+    a.href = generatedResumePdf.url;
+    a.download = generatedResumePdf.filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  };
+
+  const handleGenerateInsights = async () => {
+    setInsightsLoading(true);
+    setInsightsError(null);
+    try {
+      const res: any = await generateInsights(portfolioBio, resumePrompt);
+      setInsights(res);
+    } catch (err: any) {
+      setInsightsError(err?.message || "The insights engine isn't responding. Try again in a moment.");
+    } finally {
+      setInsightsLoading(false);
     }
   };
 
@@ -422,7 +498,19 @@ export default function CandidateDashboard() {
   const pendingCreds = creds.filter((c) => c.status === "pending");
   const verifiedCreds = creds.filter((c) => c.status === "verified");
   const revokedCreds = creds.filter((c) => c.status === "revoked");
-  void revokedCreds; // surfaced via the "revoked" filter tab + Trust tab
+
+  // CredScore — monorepo formula. Server score (portfolio.credScore) always
+  // wins; client estimate covers the gap while it loads.
+  const { score: credScoreValue, breakdown: credScoreBreakdown, contributions: credScoreContributions } =
+    computeCredScore(
+      Array.isArray(portfolio?.verifiedSkills) && portfolio.verifiedSkills.some((v: any) => v?.title)
+        ? portfolio.verifiedSkills
+        : verifiedCreds,
+      portfolio?.credScore
+    );
+
+  // On-chain proof click-through (monorepo OnChainProofModal).
+  const [proofCred, setProofCred] = useState<any | null>(null);
 
   // Public share identity — the /verify/:candidateId route resolves by credchainId.
   const publicId = candidate?.credchainId || authUser?.credchainId || userId;
@@ -483,8 +571,10 @@ export default function CandidateDashboard() {
         { id: "dashboard", label: "Dashboard", icon: <LayoutDashboard className="w-4 h-4" strokeWidth={1.75} /> },
         { id: "credentials", label: "My Credentials", icon: <GraduationCap className="w-4 h-4" strokeWidth={1.75} />, badge: sampleCreds.length },
         { id: "request", label: "Request Credential", icon: <Send className="w-4 h-4" strokeWidth={1.75} /> },
-        { id: "resume", label: "AI Resume Builder", icon: <Sparkles className="w-4 h-4" strokeWidth={1.75} /> },
+        { id: "resume", label: "AI Helper", icon: <Sparkles className="w-4 h-4" strokeWidth={1.75} /> },
         { id: "earn", label: "Earn", icon: <Trophy className="w-4 h-4" strokeWidth={1.75} /> },
+        { id: "nigeria", label: "Nigeria First", icon: <Flag className="w-4 h-4" strokeWidth={1.75} /> },
+        { id: "messages", label: "Messages", icon: <MessageSquare className="w-4 h-4" strokeWidth={1.75} /> },
       ],
     },
     {
@@ -598,7 +688,23 @@ export default function CandidateDashboard() {
               <StatCell label="TOTAL CREDENTIALS" value={String(creds.length)} />
               <StatCell label="VERIFIED ON-CHAIN" value={String(verifiedCreds.length)} tone="green" />
               <StatCell label="PENDING ACCEPTANCE" value={String(pendingCreds.length)} tone="role" />
-              <StatCell label="CREDSCORE" value={String(portfolio?.credScore?.total ?? portfolio?.credScore ?? "—")} />
+              <StatCell label="CREDSCORE" value={String(credScoreValue)} />
+            </div>
+
+            {/* CredScore breakdown + pending approvals (monorepo vault parity) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+              <CredScoreCard
+                score={credScoreValue}
+                breakdown={credScoreBreakdown}
+                contributions={credScoreContributions}
+                academicStatus={portfolio?.academicStatus || "in_school"}
+              />
+              <PendingApprovals
+                pending={pendingCreds}
+                onAccept={handleAcceptCredential}
+                onReject={handleRejectCredential}
+                busyId={credActionId}
+              />
             </div>
 
             {/* Credential wallet preview */}
@@ -800,6 +906,34 @@ export default function CandidateDashboard() {
                 </p>
               </button>
             </div>
+
+            {/* Verified vault (monorepo two-tier ledger top section): the
+                permanent, proof-backed record. Click-through opens the full
+                on-chain proof card. */}
+            <VaultSection
+              verified={verifiedCreds}
+              revoked={revokedCreds}
+              onViewProof={setProofCred}
+            />
+
+            {/* Attested + sandbox skills (monorepo TwoTierLedger middle + bottom) */}
+            <SkillTrustLedgers
+              attested={portfolio?.attestedSkills || []}
+              sandbox={portfolio?.sandboxSkills || []}
+              studentId={userId}
+              onAddSandbox={handleAddSandboxSkill}
+              onDisputeAttested={handleDisputeAttested}
+            />
+
+            {/* Five ways to prove what you can do (monorepo VerificationPathways) */}
+            <ProofPathways
+              onSelectPathway={(pathway) => {
+                if (pathway === "platform") alert("Connect an account to import your skills");
+                if (pathway === "institutional") setActiveTab("request");
+                if (pathway === "delivery") setActiveTab("earn");
+                if (pathway === "peer") setActiveTab("trust");
+              }}
+            />
           </div>
         )}
 
@@ -978,13 +1112,13 @@ export default function CandidateDashboard() {
             <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 border-b border-border-subtle pb-5">
               <div>
                 <div className="border-l-2 border-role-candidate pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-3">
-                  AI RESUME
+                  AI HELPER
                 </div>
                 <h1 className="font-display font-bold text-[26px] text-txt-primary tracking-tight">
-                  Verified resume builder.
+                  Your AI career co-pilot.
                 </h1>
                 <p className="text-sm text-txt-secondary mt-1">
-                  Generate cryptographically verifiable resumes tailored to any role using Gemini + Solana Merkle proofs.
+                  Build a cryptographically verifiable resume, then check your job-market fit — role readiness, salary estimates, and skill gaps from your verified record.
                 </p>
               </div>
               <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border-main text-txt-secondary text-[11px] font-mono">
@@ -1098,6 +1232,77 @@ export default function CandidateDashboard() {
                     )}
                   </button>
                 </div>
+
+                {/* AI Career Insights (ai-insights-engine via backend proxy).
+                    Renders a JSON-backed PREVIEW — nothing auto-downloads. */}
+                <div className="bg-bg-surface border border-border-main rounded-lg p-5 space-y-3">
+                  <h3 className="font-display font-semibold text-sm text-txt-primary flex items-center gap-2">
+                    <Signal className="w-4 h-4 text-role-candidate" strokeWidth={1.75} />
+                    <span>AI career insights</span>
+                  </h3>
+                  <p className="text-xs text-txt-secondary">
+                    Analyze your verified skills against live market telemetry — role readiness, salary range, and skill gaps.
+                  </p>
+                  <button
+                    onClick={handleGenerateInsights}
+                    disabled={insightsLoading}
+                    className="w-full py-2.5 rounded-md border border-role-candidate/50 hover:border-role-candidate text-role-candidate disabled:opacity-50 font-semibold text-xs flex items-center justify-center gap-2 cursor-pointer transition-colors"
+                  >
+                    {insightsLoading ? (
+                      <>
+                        <Sparkles className="w-4 h-4 animate-spin" />
+                        <span>Analyzing…</span>
+                      </>
+                    ) : (
+                      <span>Analyze my skills</span>
+                    )}
+                  </button>
+
+                  {insightsError && (
+                    <div className="border border-red-500/40 bg-red-500/10 rounded-md p-3 text-xs text-red-400 font-mono flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 shrink-0" /> {insightsError}
+                    </div>
+                  )}
+
+                  {insights && (
+                    <div className="space-y-3 pt-1">
+                      {(insights.aiTelemetry?.roleReadinessScore != null || insights.aiTelemetry?.marketEstimatedSalary) && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="p-3 rounded-md bg-bg-sunken border border-border-main">
+                            <div className="text-[10px] font-mono text-txt-muted uppercase">Role readiness</div>
+                            <div className="text-lg font-display font-bold text-txt-primary">
+                              {insights.aiTelemetry?.roleReadinessScore != null ? `${insights.aiTelemetry.roleReadinessScore}%` : "—"}
+                            </div>
+                          </div>
+                          <div className="p-3 rounded-md bg-bg-sunken border border-border-main">
+                            <div className="text-[10px] font-mono text-txt-muted uppercase">Est. salary</div>
+                            <div className="text-lg font-display font-bold text-txt-primary">
+                              {insights.aiTelemetry?.marketEstimatedSalary ?? "—"}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {[
+                        { title: "Strong skills", items: insights.raw?.strong_skills },
+                        { title: "Career paths", items: insights.raw?.career_paths },
+                        { title: "Next steps", items: insights.raw?.next_steps?.length ? insights.raw.next_steps : insights.aiTelemetry?.recommendedSkillGaps },
+                      ].map((sec) => (
+                        <div key={sec.title} className="p-3 rounded-md bg-bg-sunken border border-border-main">
+                          <div className="text-[10px] font-mono text-role-candidate uppercase mb-1.5">{sec.title}</div>
+                          {Array.isArray(sec.items) && sec.items.length > 0 ? (
+                            <ul className="space-y-1 text-xs text-txt-secondary list-disc list-inside">
+                              {sec.items.map((it: any, i: number) => (
+                                <li key={i}>{String(it)}</li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="text-xs text-txt-muted">No suggestions yet (set OPENAI_API_KEY for real insights).</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
               {/* Preview */}
@@ -1106,17 +1311,20 @@ export default function CandidateDashboard() {
                   <span className="text-[10px] font-mono font-semibold text-txt-muted uppercase tracking-wider">
                     LIVE OUTPUT PREVIEW
                   </span>
-                  {generatedResumeHtml && (
+                  {(generatedResumeHtml || generatedResumePdf) && (
                     <div className="flex items-center gap-2">
+                      {generatedResumeHtml && (
+                        <button
+                          onClick={() => navigator.clipboard.writeText(generatedResumeHtml)}
+                          className="px-2.5 py-1.5 rounded-sm border border-border-main hover:border-role-candidate text-txt-secondary hover:text-txt-primary text-xs flex items-center gap-1 cursor-pointer transition-colors"
+                        >
+                          <Copy className="w-3.5 h-3.5" /> Copy HTML
+                        </button>
+                      )}
                       <button
-                        onClick={() => navigator.clipboard.writeText(generatedResumeHtml)}
-                        className="px-2.5 py-1.5 rounded-sm border border-border-main hover:border-role-candidate text-txt-secondary hover:text-txt-primary text-xs flex items-center gap-1 cursor-pointer transition-colors"
-                      >
-                        <Copy className="w-3.5 h-3.5" /> Copy HTML
-                      </button>
-                      <button
-                        onClick={() => alert("Downloading verifiable PDF.")}
-                        className="px-3 py-1.5 rounded-sm bg-brand-purple hover:bg-brand-purple-dim text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
+                        onClick={handleExportResumePdf}
+                        disabled={!generatedResumePdf}
+                        className="px-3 py-1.5 rounded-sm bg-brand-purple hover:bg-brand-purple-dim disabled:opacity-50 text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer transition-colors"
                       >
                         <Download className="w-3.5 h-3.5" /> Export PDF
                       </button>
@@ -1124,7 +1332,13 @@ export default function CandidateDashboard() {
                   )}
                 </div>
 
-                {!generatedResumeHtml ? (
+                {resumeError && (
+                  <div className="border border-red-500/40 bg-red-500/10 rounded-md p-3 text-xs text-red-400 font-mono flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 shrink-0" /> {resumeError}
+                  </div>
+                )}
+
+                {!generatedResumeHtml && !generatedResumePdf ? (
                   <div className="min-h-[400px] border border-dashed border-border-main rounded-md flex flex-col items-center justify-center text-center p-8 space-y-3">
                     <div className="w-12 h-12 rounded-md border border-border-main bg-bg-sunken text-role-candidate flex items-center justify-center">
                       <FileText className="w-6 h-6" strokeWidth={1.75} />
@@ -1140,14 +1354,23 @@ export default function CandidateDashboard() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <div
-                      className="resume-preview p-6 rounded-md bg-bg-sunken border border-border-main min-h-[400px] max-w-full overflow-x-hidden"
-                    >
-                      <div
-                        className="prose prose-invert max-w-none text-sm text-txt-primary leading-relaxed"
-                        dangerouslySetInnerHTML={{ __html: generatedResumeHtml }}
+                    {generatedResumePdf ? (
+                      // Live: inline PDF preview of the real verified CV.
+                      <iframe
+                        src={generatedResumePdf.url}
+                        title="Verified CV preview"
+                        className="w-full min-h-[500px] rounded-md bg-white border border-border-main"
                       />
-                    </div>
+                    ) : (
+                      <div
+                        className="resume-preview p-6 rounded-md bg-bg-sunken border border-border-main min-h-[400px] max-w-full overflow-x-hidden"
+                      >
+                        <div
+                          className="prose prose-invert max-w-none text-sm text-txt-primary leading-relaxed"
+                          dangerouslySetInnerHTML={{ __html: generatedResumeHtml || "" }}
+                        />
+                      </div>
+                    )}
 
                     <div className="border border-border-main bg-bg-sunken rounded-md p-3 flex items-center justify-between text-[11px] font-mono">
                       <span className="flex items-center gap-2 text-txt-secondary">
@@ -1194,7 +1417,16 @@ export default function CandidateDashboard() {
           />
         )}
 
-        {activeTab === "earn" && <EarnTab />}
+        {activeTab === "earn" && <EarnTab highestTier={portfolio?.highestTier || "learner"} />}
+
+        {activeTab === "nigeria" && (
+          <NigeriaTab
+            user={{ name: candidate?.name || authUser?.name || portfolioName, credchainId: publicId }}
+            verified={verifiedCreds}
+          />
+        )}
+
+        {activeTab === "messages" && <MessagesTab meId={userId} />}
 
         {activeTab === "trust" && <TrustTab candidateId={userId} credentials={creds} onChanged={refetchStudent} />}
 
@@ -1622,6 +1854,9 @@ export default function CandidateDashboard() {
           </div>
         )}
       </DashboardShell>
+
+      {/* On-chain proof click-through (monorepo OnChainProofModal) */}
+      {proofCred && <ProofModal credential={proofCred} onClose={() => setProofCred(null)} />}
 
       {/* Dispute revoked credential modal */}
       {disputeCred && (

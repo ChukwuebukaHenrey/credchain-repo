@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Trophy, Coins, Clock, ShieldCheck, Users, ArrowRight, CheckCircle2, X, Star, Send, Link as LinkIcon, Globe } from "lucide-react";
+import { Trophy, Coins, Clock, ShieldCheck, Users, ArrowRight, CheckCircle2, X, Star, Send, Link as LinkIcon, Globe, Crown, Medal, Lock } from "lucide-react";
 import {
   getBounties,
   applyToBounty,
@@ -8,8 +8,10 @@ import {
   submitDelivery,
   rateCounterparty,
   submitToGlobalBounty,
+  getLeaderboard,
 } from "../../services/api";
 import { getBrandLogo } from "../../lib/brandLogos";
+import { TIER_CONFIG, tierMeetsRequirement, scoreBand } from "../../lib/credscore";
 
 // Earn tab — the "Bounties" surface from the pitch deck.
 // Reads getBounties() (live: GET /api/v1/bounties, mock: fixtures) and completes
@@ -83,11 +85,12 @@ const STATUS_LABEL: Record<string, string> = {
 const appId = (a: MyApplication) => String(a._id || a.id || "");
 const bountyKey = (b: Bounty) => String(b._id || b.id || "");
 
-export default function EarnTab() {
+export default function EarnTab({ highestTier = "learner" }: { highestTier?: string }) {
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [applications, setApplications] = useState<MyApplication[]>([]);
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<"all" | "open" | "mine">("all");
+  const [filter, setFilter] = useState<"all" | "open" | "qualify" | "global" | "mine">("all");
   const [busyId, setBusyId] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
@@ -114,6 +117,12 @@ export default function EarnTab() {
       setApplications(Array.isArray(res?.applications) ? res.applications : []);
     } catch {
       setApplications([]);
+    }
+    try {
+      const res: any = await getLeaderboard();
+      setLeaderboard(Array.isArray(res?.leaderboard) ? res.leaderboard : []);
+    } catch {
+      setLeaderboard([]);
     }
   }, []);
 
@@ -208,8 +217,13 @@ export default function EarnTab() {
   };
 
   // ── Derived views ────────────────────────────────────────
+  // "I Qualify" mirrors monorepo StudentEarnTab: tier-gated eligibility from
+  // the student's highest verified tier vs the bounty's requiredTier.
+  const qualifying = bounties.filter((b) => tierMeetsRequirement(highestTier, b.requiredTier));
   const visible = bounties.filter((b) => {
     if (filter === "open") return b.status === "open";
+    if (filter === "qualify") return tierMeetsRequirement(highestTier, b.requiredTier);
+    if (filter === "global") return b.bountyType === "global";
     if (filter === "mine") return Boolean(b.myApplicationStatus);
     return true;
   });
@@ -248,18 +262,26 @@ export default function EarnTab() {
       </div>
 
       {/* Filter tabs */}
-      <div className="flex items-center gap-1 border-b border-border-main">
-        {(["all", "open", "mine"] as const).map((f) => (
+      <div className="flex items-center gap-1 border-b border-border-main overflow-x-auto">
+        {(["all", "open", "qualify", "global", "mine"] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px cursor-pointer ${
+            className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px cursor-pointer whitespace-nowrap ${
               filter === f
                 ? "border-brand-purple text-txt-primary"
                 : "border-transparent text-txt-secondary hover:text-txt-primary"
             }`}
           >
-            {f === "all" ? "All Bounties" : f === "open" ? "Open" : "My Applications"}
+            {f === "all"
+              ? `All Bounties (${bounties.length})`
+              : f === "open"
+              ? "Open"
+              : f === "qualify"
+              ? `I Qualify (${qualifying.length})`
+              : f === "global"
+              ? "Global Challenges"
+              : "My Applications"}
           </button>
         ))}
       </div>
@@ -276,6 +298,14 @@ export default function EarnTab() {
           onDeliver={(app) => setDeliverFor({ bounty: findBounty(appBountyId(app)), app })}
           onRate={(app) => setRateFor({ bounty: findBounty(appBountyId(app)), app })}
         />
+      ) : filter === "global" ? (
+        <GlobalChallengesPanel
+          bounties={bounties.filter((b) => b.bountyType === "global")}
+          leaderboard={leaderboard}
+          highestTier={highestTier}
+          busyId={busyId}
+          onSubmit={(b) => setSubmitGlobalFor(b)}
+        />
       ) : visible.length === 0 ? (
         <div className="text-txt-muted text-sm py-12 text-center border border-dashed border-border-main rounded-lg">
           No bounties in this view yet.
@@ -286,6 +316,7 @@ export default function EarnTab() {
             <BountyCard
               key={bountyKey(b)}
               bounty={b}
+              highestTier={highestTier}
               busy={busyId === bountyKey(b)}
               onApply={() => setApplyFor(b)}
               onRespond={(d) => doRespond(b, d)}
@@ -353,12 +384,14 @@ function StatCard({ icon, label, value, accent }: { icon: React.ReactNode; label
 
 function BountyCard({
   bounty: b,
+  highestTier = "learner",
   busy,
   onApply,
   onRespond,
   onSubmitGlobal,
 }: {
   bounty: Bounty;
+  highestTier?: string;
   busy: boolean;
   onApply: () => void;
   onRespond: (decision: "accept" | "decline") => void;
@@ -366,6 +399,9 @@ function BountyCard({
 }) {
   const applied = Boolean(b.myApplicationStatus);
   const isGlobal = b.bountyType === "global";
+  // Tier gate (monorepo StudentEarnTab): credential tier is the application.
+  const qualifies = tierMeetsRequirement(highestTier, b.requiredTier);
+  const reqTier = TIER_CONFIG[b.requiredTier] || TIER_CONFIG.learner;
   // Direct task offered to this candidate — backend uses bountyType 'direct'
   // with application status 'invited' (mock fixtures use 'assigned'/'applied').
   const isDirectOffer =
@@ -402,7 +438,22 @@ function BountyCard({
         <div className="text-right shrink-0">
           <div className="font-display text-lg font-bold text-role-issuer">{b.reward}</div>
           <div className="text-[10px] font-mono text-txt-muted">≈ {b.rewardSOL} SOL</div>
+          {/* CredScore increment (monorepo StudentEarnTab reward footnote) */}
+          <div className="text-[10px] font-mono text-role-candidate">+15 CredScore</div>
         </div>
+      </div>
+
+      {/* Tier gate (monorepo "You qualify" / "Needs <tier>") */}
+      <div className="flex items-center gap-1.5">
+        {qualifies ? (
+          <span className="inline-flex items-center gap-1 text-[10px] font-mono font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-hash-green/10 text-hash-green">
+            <CheckCircle2 className="w-3 h-3" /> You qualify
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1 text-[10px] font-mono font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-bg-sunken text-txt-muted border border-border-subtle">
+            <Lock className="w-3 h-3" /> Needs {reqTier.label}
+          </span>
+        )}
       </div>
 
       {/* Body */}
@@ -581,6 +632,186 @@ function MyApplicationsPanel({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ── Global Challenges panel (monorepo GlobalChallenges, student view) ──
+   Open competitions + leaderboard. A winner's credential is weighted by the
+   real field they beat — proof of work you can't buy or self-deal. */
+function GlobalChallengesPanel({
+  bounties,
+  leaderboard,
+  highestTier,
+  busyId,
+  onSubmit,
+}: {
+  bounties: Bounty[];
+  leaderboard: any[];
+  highestTier: string;
+  busyId: string | null;
+  onSubmit: (b: Bounty) => void;
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 shrink-0 rounded-md bg-role-verifier-soft text-role-verifier flex items-center justify-center">
+          <Globe className="w-5 h-5" strokeWidth={1.75} />
+        </div>
+        <div>
+          <h3 className="font-display font-bold text-base text-txt-primary">Global challenges</h3>
+          <p className="mt-0.5 text-xs text-txt-secondary max-w-[560px]">
+            Open competitions anyone eligible can enter. Winners earn a credential weighted by the real field they beat —{" "}
+            <strong className="text-txt-primary">proof of work you can't buy or self-deal.</strong>
+          </p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4 items-start">
+        {/* Challenges list */}
+        <div className="space-y-3">
+          {bounties.length === 0 ? (
+            <div className="text-txt-muted text-sm py-12 text-center border border-dashed border-border-main rounded-lg">
+              No global challenges yet — check back soon, open competitions appear here.
+            </div>
+          ) : (
+            bounties.map((b) => {
+              const reqTier = TIER_CONFIG[b.requiredTier] || TIER_CONFIG.learner;
+              const qualifies = tierMeetsRequirement(highestTier, b.requiredTier);
+              const mine = b.myApplicationStatus;
+              const prizes: any[] = (b as any).prizes || [];
+              const submissionCount = (b as any).submissionCount ?? b.applicantCount ?? 0;
+              const isWinner = (b as any).myIsWinner;
+              const placement = (b as any).myPlacement;
+              return (
+                <div key={bountyKey(b)} className="bg-bg-surface border border-border-main rounded-lg p-5 transition-colors hover:border-border-strong">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm">{b.companyLogo}</span>
+                        <span className="text-xs font-bold text-brand-purple">{b.company}</span>
+                        <span className={`text-[10px] font-mono font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full ${
+                          b.status === "open" ? "bg-hash-green/10 text-hash-green" : "bg-bg-sunken text-txt-muted border border-border-subtle"
+                        }`}>
+                          {b.status === "open" ? "Open" : b.status === "completed" ? "Winners announced" : b.status}
+                        </span>
+                        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-bg-sunken text-txt-secondary border border-border-subtle">
+                          {reqTier.icon} {reqTier.label}+
+                        </span>
+                        {b.sponsorVerified && (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-mono px-2 py-0.5 rounded-full bg-hash-green/10 text-hash-green">
+                            <ShieldCheck className="w-3 h-3" /> Vetted sponsor
+                          </span>
+                        )}
+                      </div>
+                      <h4 className="mt-1.5 text-sm font-bold text-txt-primary">{b.title}</h4>
+                      <p className="mt-0.5 line-clamp-2 text-xs text-txt-secondary">{b.description}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px] font-mono text-txt-muted">
+                        <span className="inline-flex items-center gap-1">
+                          <Users className="w-3.5 h-3.5" /> {submissionCount} submitted
+                        </span>
+                        {b.deadline && <span>{String(b.deadline).slice(0, 10)}</span>}
+                      </div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className="font-display text-xl font-bold text-txt-primary">{b.reward}</p>
+                      <p className="text-[10px] font-mono uppercase tracking-wide text-txt-muted">prize pool</p>
+                    </div>
+                  </div>
+
+                  {prizes.length > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {prizes.map((p: any) => (
+                        <span key={p.rank} className="inline-flex items-center gap-1 rounded-full bg-bg-sunken px-2 py-0.5 text-[10px] font-mono text-txt-secondary">
+                          <Medal className="w-3 h-3 text-role-verifier" /> {p.label}: {p.reward}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-4 flex items-center gap-3">
+                    {mine ? (
+                      <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold font-mono px-2.5 py-1.5 rounded-sm ${
+                        isWinner ? "bg-hash-green/10 text-hash-green" : "bg-role-candidate-soft text-role-candidate"
+                      }`}>
+                        {isWinner ? (
+                          <>
+                            <Crown className="w-3.5 h-3.5" />
+                            You won — {placement === 1 ? "1st" : placement === 2 ? "2nd" : `${placement}th`} place
+                          </>
+                        ) : (
+                          <>
+                            <Send className="w-3.5 h-3.5" /> Submitted ({STATUS_LABEL[mine] || mine})
+                          </>
+                        )}
+                      </span>
+                    ) : b.status === "open" ? (
+                      <button
+                        disabled={busyId === bountyKey(b) || !qualifies}
+                        onClick={() => onSubmit(b)}
+                        title={qualifies ? undefined : `Requires ${reqTier.label} tier`}
+                        className="text-[12px] font-semibold inline-flex items-center gap-1 bg-brand-purple hover:bg-brand-purple-dim disabled:opacity-50 text-white px-3 py-1.5 rounded-md transition-colors cursor-pointer"
+                      >
+                        {qualifies ? (
+                          <>
+                            Submit your entry <Send className="w-3.5 h-3.5" />
+                          </>
+                        ) : (
+                          <>
+                            <Lock className="w-3.5 h-3.5" /> Needs {reqTier.label}
+                          </>
+                        )}
+                      </button>
+                    ) : (
+                      <span className="text-[11px] font-mono text-txt-muted">Closed</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        {/* Leaderboard (monorepo: top earners by real delivered work) */}
+        <div className="bg-bg-surface border border-border-main rounded-lg p-5 h-fit">
+          <h4 className="flex items-center gap-2 text-sm font-bold text-txt-primary font-display">
+            <Crown className="w-4 h-4 text-role-verifier" /> Leaderboard
+          </h4>
+          <p className="mt-1 text-[11px] text-txt-muted">
+            Top earners by real delivered work — the thing that can't be bought.
+          </p>
+          {leaderboard.length === 0 ? (
+            <p className="py-6 text-center text-xs font-mono text-txt-muted">No ranked earners yet.</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              {leaderboard.map((r: any) => {
+                const band = scoreBand(r.credScore);
+                const medal = r.rank === 1 ? "🥇" : r.rank === 2 ? "🥈" : r.rank === 3 ? "🥉" : `#${r.rank}`;
+                return (
+                  <div
+                    key={r.credchainId || r.rank}
+                    className="flex items-center gap-3 rounded-lg border border-border-subtle bg-bg-elevated px-3 py-2"
+                  >
+                    <span className="w-6 shrink-0 text-center text-sm font-bold">{medal}</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold text-txt-primary">{r.name}</p>
+                      <p className="text-[10px] font-mono text-txt-muted">
+                        {r.deliveries} deliveries · ◎ {r.earnedSOL} SOL
+                      </p>
+                    </div>
+                    <span
+                      className="shrink-0 rounded-md px-1.5 py-0.5 text-xs font-black font-mono"
+                      style={{ color: band.color, background: `${band.color}1f` }}
+                    >
+                      {r.credScore}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

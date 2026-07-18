@@ -26,6 +26,7 @@ import VerifierDashboard from "./pages/VerifierDashboard";
 import AdminDashboard from "./pages/AdminDashboard";
 import PublicProfile from "./pages/PublicProfile";
 import AuthCallback from "./pages/AuthCallback";
+import VouchPage from "./pages/VouchPage";
 
 function Landing() {
   return (
@@ -111,6 +112,10 @@ function AppRoutes() {
       />
       
       <Route path="/verify/:candidateId" element={<PublicProfile />} />
+
+      {/* Vouch link target (shared from Trust tab / sandbox skills).
+          Reputation-staked peer attestation — see VouchPage. */}
+      <Route path="/vouch/:candidateId/:skillIndex" element={<VouchPage />} />
 
       {/* Platform admin — no `allow` prop: admin isn't a Role. Any authenticated
           user can open it; the backend's ADMIN_EMAILS allowlist returns 403 for

@@ -30,11 +30,13 @@ import {
 } from "../services/api";
 import { TalentEntry, normalizeTalent, useShortlist } from "../components/verifier/talent";
 import TalentCard from "../components/verifier/TalentCard";
+import FindTalentTab from "../components/verifier/FindTalentTab";
+import { TalentProfile } from "../components/verifier/talentData";
 import ChatDrawer, { ChatRoom, roomCounterpart } from "../components/verifier/ChatDrawer";
 import BountiesTab, { Bounty } from "../components/verifier/BountiesTab";
 import { getAvatarFor, saveAvatar, validateAvatarFile, readAvatarFile } from "../lib/avatars";
 
-type Tab = "verify" | "shortlist" | "bounties" | "logs" | "api" | "settings" | "help";
+type Tab = "talent" | "verify" | "shortlist" | "bounties" | "chats" | "logs" | "api" | "settings" | "help";
 
 // Backend trust-tier vocabulary (minimum-tier filter): learner → practitioner →
 // proven_practitioner → expert → master. Empty string = any tier.
@@ -51,7 +53,7 @@ export default function VerifierDashboard() {
   const { user: authUser, logout } = useAuth();
   const navigate = useNavigate();
   const myUserId = authUser?.id || "";
-  const [activeTab, setActiveTab] = useState<Tab>("verify");
+  const [activeTab, setActiveTab] = useState<Tab>("talent");
   const [searchQuery, setSearchQuery] = useState("");
   const [query, setQuery] = useState("");
 
@@ -242,6 +244,27 @@ export default function VerifierDashboard() {
     await fetchRooms();
   };
 
+  // "Send message" from a Find Talent card (monorepo TalentSearch onContact) —
+  // same credit-gated initialize flow, adapted from the TalentProfile shape.
+  const handleContactProfile = (student: TalentProfile) => {
+    handleMessage({
+      userId: student.id,
+      name: student.name,
+      headline: student.headline,
+      credScore: student.credScore,
+      highestTier: student.highestTier,
+      skillTags: student.skillTags,
+      university: student.university,
+    } as TalentEntry);
+  };
+
+  // Toast for Find Talent (assign-task feedback).
+  const [talentToast, setTalentToast] = useState<{ message: string; variant: "success" | "danger" } | null>(null);
+  const showTalentToast = (message: string, variant: "success" | "danger") => {
+    setTalentToast({ message, variant });
+    setTimeout(() => setTalentToast(null), 3200);
+  };
+
   // ── Bounties (GET /api/v1/bounties/mine) ──
   const [bounties, setBounties] = useState<Bounty[]>([]);
   const [bountiesLoading, setBountiesLoading] = useState(true);
@@ -334,9 +357,11 @@ export default function VerifierDashboard() {
     {
       label: "VERIFICATION DESK",
       items: [
+        { id: "talent", label: "Find Talent", icon: <Search className="w-4 h-4" strokeWidth={1.75} /> },
         { id: "verify", label: "Search & Verify", icon: <ShieldCheck className="w-4 h-4" strokeWidth={1.75} /> },
         { id: "shortlist", label: "Saved Shortlist", icon: <Bookmark className="w-4 h-4" strokeWidth={1.75} />, badge: shortlist.length },
         { id: "bounties", label: "Bounties", icon: <Trophy className="w-4 h-4" strokeWidth={1.75} />, badge: bounties.length || undefined },
+        { id: "chats", label: "Conversations", icon: <MessageSquare className="w-4 h-4" strokeWidth={1.75} />, badge: rooms.length || undefined },
         { id: "logs", label: "Audit & Logs", icon: <FileText className="w-4 h-4" strokeWidth={1.75} /> },
       ],
     },
@@ -385,6 +410,27 @@ export default function VerifierDashboard() {
         </>
       }
     >
+      {activeTab === "talent" && (
+        <div className="space-y-6">
+          <div className="text-left max-w-3xl">
+            <div className="border-l-2 border-role-verifier pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-3">
+              TALENT DISCOVERY
+            </div>
+            <h1 className="font-display font-bold text-[28px] text-txt-primary tracking-tight leading-tight">
+              Find talent.
+            </h1>
+            <p className="font-sans text-txt-secondary scale-base mt-2 leading-relaxed">
+              Search verified students and graduates by skill, tier, and delivery history.
+            </p>
+          </div>
+          <FindTalentTab
+            onContact={handleContactProfile}
+            onInviteToBounty={() => setActiveTab("bounties")}
+            onNotify={showTalentToast}
+          />
+        </div>
+      )}
+
       {activeTab === "verify" && (
         <div className="space-y-8">
           {/* Page header */}
@@ -635,6 +681,80 @@ export default function VerifierDashboard() {
         <BountiesTab bounties={bounties} loading={bountiesLoading} error={bountiesError} refetch={fetchBounties} />
       )}
 
+      {activeTab === "chats" && (
+        <div className="space-y-6 text-left">
+          <div>
+            <div className="border-l-2 border-role-verifier pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-3">
+              CREDIT-GATED OUTREACH
+            </div>
+            <h1 className="font-display font-bold text-[26px] text-txt-primary tracking-tight">
+              My conversations.
+            </h1>
+            <p className="text-sm text-txt-secondary mt-1">
+              Outreach is refunded the moment a candidate replies.
+            </p>
+          </div>
+
+          {/* Stats strip (monorepo EmployerPortal: credits / messaged / replied) */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatCell label="CHAT CREDITS" value={typeof chatCredits === "number" ? String(chatCredits) : "—"} tone="role" />
+            <StatCell label="MESSAGED" value={String(rooms.filter((r) => r.iInitiated).length)} />
+            <StatCell label="REPLIED" value={String(rooms.filter((r) => r.iInitiated && r.isUnlocked).length)} tone="green" />
+          </div>
+
+          {roomsLoading ? (
+            <div className="text-txt-muted text-sm py-10 text-center font-mono">Loading conversations…</div>
+          ) : rooms.length === 0 ? (
+            <EmptyState
+              title="No conversations yet"
+              body="Message a candidate from Find Talent or the talent feed to start a conversation."
+            />
+          ) : (
+            <div className="space-y-3">
+              {rooms.map((room) => {
+                const other = roomCounterpart(room, myUserId);
+                const last = room.messages?.[room.messages.length - 1];
+                return (
+                  <button
+                    key={room._id}
+                    type="button"
+                    onClick={() => {
+                      setActiveRoomId(room._id);
+                      setChatOpen(true);
+                    }}
+                    className="w-full text-left bg-bg-surface border border-border-main hover:border-border-strong rounded-lg p-4 transition-colors cursor-pointer flex items-center justify-between gap-3"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <div className="w-10 h-10 rounded-md bg-role-verifier-soft text-role-verifier border border-border-main font-mono font-bold text-sm flex items-center justify-center flex-shrink-0 overflow-hidden">
+                        {getAvatarFor({ name: other?.name }) ? (
+                          <img src={getAvatarFor({ name: other?.name })!} alt={other?.name || "Candidate"} className="w-full h-full object-cover" />
+                        ) : (
+                          getInitials(other?.name || "?")
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-txt-primary">{other?.name || "Candidate"}</p>
+                        <p className="mt-0.5 truncate text-xs text-txt-muted">{last?.text || "No messages yet"}</p>
+                      </div>
+                    </div>
+                    <span
+                      className={`inline-flex items-center gap-1.5 text-[10px] font-mono uppercase font-semibold px-2 py-1 rounded-sm border flex-shrink-0 ${
+                        room.isUnlocked
+                          ? "text-hash-green border-hash-green/30"
+                          : "text-role-verifier border-role-verifier/30"
+                      }`}
+                    >
+                      {room.isUnlocked ? <Check className="w-3 h-3" strokeWidth={2.5} /> : null}
+                      {room.isUnlocked ? "Unlocked" : "Locked"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {activeTab === "logs" && (
         <div className="space-y-6 text-left">
           <div>
@@ -798,6 +918,17 @@ export default function VerifierDashboard() {
         notice={chatNotice}
         chatCredits={chatCredits}
       />
+
+      {/* Toast (Find Talent assign-task feedback) */}
+      {talentToast && (
+        <div
+          className={`fixed bottom-6 right-6 z-[60] px-5 py-3.5 rounded-md bg-bg-surface border border-border-main border-l-2 text-xs font-semibold text-txt-primary ${
+            talentToast.variant === "success" ? "border-l-hash-green" : "border-l-hash-red"
+          }`}
+        >
+          {talentToast.message}
+        </div>
+      )}
     </DashboardShell>
   );
 }

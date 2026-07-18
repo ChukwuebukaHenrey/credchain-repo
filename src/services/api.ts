@@ -223,8 +223,10 @@ export async function getRequests(_id: string)         { return mock.requests } 
 export async function getIssuerRequests(_id: string)   { return mock.issuerRequests }  // MOCK-ONLY: no backend route
 export async function getPublicProfile(id: string)     { return USE_MOCK ? mock.publicProfile     : get(`/student/profile/${id}`).then((r: any) => r?.profile || r) }
 export async function getQRCode(id: string, scope: string = "all") { return mock.qr }  // MOCK-ONLY: QR is generated client-side
-// Backend returns a PDF blob (not JSON) from /v1/ai/generate-verified-cv. On live,
-// we download it and return a marker the Resume tab can detect.
+// Backend returns a PDF blob (not JSON) from /v1/ai/generate-verified-cv.
+// IMPORTANT: do NOT auto-download here — return an object URL so the Resume
+// tab can PREVIEW the PDF inline first (monorepo parity); the Export PDF
+// button triggers the actual save. 409 = no on-chain credentials yet.
 export async function buildResume(id: string, prompt: string) {
   if (USE_MOCK) return mock.resume;
   const res = await fetch(`${BASE_URL}/v1/ai/generate-verified-cv`, {
@@ -237,15 +239,29 @@ export async function buildResume(id: string, prompt: string) {
     throw Object.assign(new Error(data?.message || `CV generation failed (${res.status})`), { status: res.status });
   }
   const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "credchain-verified-cv.pdf";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
-  return { downloaded: true, resume_html: "<p>Your verified CV (PDF) has been downloaded.</p>" };
+  const filename =
+    res.headers.get("Content-Disposition")?.match(/filename="?([^";]+)"?/)?.[1] ||
+    "credchain-verified-cv.pdf";
+  return { pdfUrl: URL.createObjectURL(blob), filename };
+}
+
+// ── AI Insights (backend: POST /api/v1/ai/sync-telemetry → ai-insights-engine :8002) ──
+// Returns { aiTelemetry: { roleReadinessScore, marketEstimatedSalary,
+// recommendedSkillGaps, syncedAt }, raw: { strong_skills, career_paths, next_steps } }.
+// The preview renders from this JSON — nothing is downloaded.
+export async function generateInsights(bio?: string, goals?: string) {
+  if (USE_MOCK) {
+    return {
+      success: true,
+      aiTelemetry: { roleReadinessScore: 72, marketEstimatedSalary: "$45k–$65k", recommendedSkillGaps: ["System design", "Testing", "CI/CD"], syncedAt: new Date().toISOString() },
+      raw: {
+        strong_skills: ["React", "Solidity", "Node.js"],
+        career_paths: ["Web3 Frontend Engineer", "Smart Contract Developer", "Full-stack Engineer"],
+        next_steps: ["Ship a Solana dApp end-to-end", "Add automated tests to your projects", "Contribute to an open-source protocol"],
+      },
+    };
+  }
+  return post(`/v1/ai/sync-telemetry`, { bio: bio || "", goals: goals || "" });
 }
 
 // ── Earn / Bounties (backend: GET /api/v1/bounties → { success, bounties }) ──
@@ -410,9 +426,31 @@ export async function getWhitelistedInstitutions(): Promise<string[]> {
 const ok = (extra: any = {}) => Promise.resolve({ success: true, mock: true, ...extra });
 
 // ── Student portfolio (two-tier ledger: verified + sandbox + attested) ──
+// The REAL backend returns the ledgers + credScore at the TOP LEVEL of the
+// response (no `portfolio` wrapper): { verifiedLedger, sandboxLedger,
+// attestedLedger, credScore: { value, breakdown }, highestTier, ... }.
+// The mock (and every consumer in cc-v2) speaks { portfolio: { verifiedSkills,
+// sandboxSkills, attestedSkills, credScore } } — so normalize HERE, at the
+// boundary, exactly like the role vocabulary above.
 export async function getStudentPortfolio(userId: string) {
-  if (USE_MOCK) return { success: true, portfolio: { verifiedSkills: mock.credentials, sandboxSkills: mock.candidate.sandboxSkills, attestedSkills: mock.candidate.attestedSkills, credScore: { total: mock.candidate.credScore }, highestTier: mock.candidate.tier } };
-  return get(`/v1/student/${userId}/portfolio`);
+  if (USE_MOCK) return { success: true, portfolio: { verifiedSkills: mock.credentials, sandboxSkills: mock.candidate.sandboxSkills, attestedSkills: mock.candidate.attestedSkills, credScore: { value: mock.candidate.credScore, total: mock.candidate.credScore }, highestTier: mock.candidate.tier } };
+  const r: any = await get(`/v1/student/${userId}/portfolio`);
+  if (r?.portfolio) return r; // future-proof: backend already wraps
+  return {
+    ...r,
+    portfolio: {
+      verifiedSkills: r?.verifiedLedger || [],
+      sandboxSkills:  r?.sandboxLedger  || [],
+      attestedSkills: r?.attestedLedger || [],
+      credScore:      r?.credScore      || null, // { value, breakdown, lastCalculated }
+      highestTier:    r?.highestTier    || "learner",
+      deliveryStats:  r?.deliveryStats  || {},
+      academicStatus: r?.academicStatus,
+      aiTelemetry:    r?.aiTelemetry    || null,
+      counts:         r?.counts,
+      student:        r?.student,
+    },
+  };
 }
 export async function addSandboxSkill(skillName: string, source?: string, link?: string) {
   if (USE_MOCK) return ok({ skill: { skillName, source, link } });
@@ -545,9 +583,17 @@ export async function sendChatMessageV1(roomId: string, text: string) {
 }
 
 // ── Issuer funnel + issuance (v1) ──
-export async function registerIssuerStepOne(institutionType: string) {
-  if (USE_MOCK) return ok({ status: "domain_pending", dnsChallengeToken: "credchain-verify=mock123" });
-  return post(`/v1/issuer/register-step-one`, { institutionType });
+// Backend: POST /v1/issuer/register-step-one { institutionType, email } →
+// { issuer: { verificationStatus, riskFlags, ... }, dnsInstructions: { recordType, host, value } }.
+export async function registerIssuerStepOne(institutionType: string, email?: string) {
+  if (USE_MOCK)
+    return ok({
+      status: "domain_pending",
+      dnsChallengeToken: "credchain-verify=mock123",
+      issuer: { verificationStatus: "applied", riskFlags: [] },
+      dnsInstructions: { recordType: "TXT", host: "example.edu.ng", value: "credchain-verify=mock123" },
+    });
+  return post(`/v1/issuer/register-step-one`, { institutionType, email });
 }
 export async function verifyIssuerDomain() {
   if (USE_MOCK) return ok({ status: "kyc_pending" });
