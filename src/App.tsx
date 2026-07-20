@@ -15,6 +15,7 @@ import ProofSection from "./components/ProofSection";
 import WhoItsFor from "./components/WhoItsFor";
 import Features from "./components/Features";
 import CTASection from "./components/CTASection";
+import FloatingCTA from "./components/FloatingCTA";
 import TrustStrip from "./components/TrustStrip";
 import Footer from "./components/Footer";
 import RoleSelection from "./pages/RoleSelection";
@@ -44,6 +45,7 @@ function Landing() {
         <TrustStrip />
       </main>
       <Footer />
+      <FloatingCTA />
     </div>
   );
 }
