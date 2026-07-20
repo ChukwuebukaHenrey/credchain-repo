@@ -1,10 +1,20 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Play, ShieldCheck, Check, Radio } from "lucide-react";
+import {
+  motion,
+  useReducedMotion,
+  useScroll,
+  useTransform,
+  useSpring,
+  useMotionValue,
+} from "motion/react";
+import { Play, ShieldCheck, Check, Radio, Loader2 } from "lucide-react";
 import FadeIn from "./FadeIn";
 
 export default function Hero() {
   const navigate = useNavigate();
+  const reduce = useReducedMotion();
+  const sectionRef = useRef<HTMLElement>(null);
 
   // Option A — landing is a designed dark composition (like solana.com, which has
   // no light landing). The arc background + white headline only read correctly on
@@ -19,16 +29,58 @@ export default function Hero() {
     };
   }, []);
 
+  // Scroll parallax: the wave backdrop drifts up slower than the content as the
+  // hero scrolls away, giving the section depth instead of a flat image.
+  const { scrollYProgress } = useScroll({
+    target: sectionRef,
+    offset: ["start start", "end start"],
+  });
+  const bgY = useTransform(scrollYProgress, [0, 1], ["0%", "18%"]);
+
+  // Pointer drift: the backdrop leans a few px toward the cursor. Springed so it
+  // trails smoothly rather than snapping. Both disabled under reduced-motion.
+  const pointerX = useMotionValue(0);
+  const pointerY = useMotionValue(0);
+  const driftX = useSpring(useTransform(pointerX, [-0.5, 0.5], [-14, 14]), {
+    stiffness: 60,
+    damping: 18,
+  });
+  const driftY = useSpring(useTransform(pointerY, [-0.5, 0.5], [-10, 10]), {
+    stiffness: 60,
+    damping: 18,
+  });
+
+  function handlePointer(e: React.PointerEvent<HTMLElement>) {
+    if (reduce) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    pointerX.set((e.clientX - r.left) / r.width - 0.5);
+    pointerY.set((e.clientY - r.top) / r.height - 0.5);
+  }
+
   return (
-    <section className="relative min-h-[92vh] bg-bg-base pt-32 pb-16 flex items-center overflow-hidden">
-      {/* Full-bleed flowing-wave backdrop (sol.png). Spans edge-to-edge across the
-          whole viewport width — the previous arc image was concentrated on the
-          right, which left the left side looking empty. */}
-      <div
+    <section
+      ref={sectionRef}
+      onPointerMove={handlePointer}
+      className="relative min-h-[92vh] bg-bg-base pt-32 pb-16 flex items-center overflow-hidden"
+    >
+      {/* Full-bleed flowing-wave backdrop. Two nested layers so the two motions
+          don't fight over the same transform: the outer layer drifts on scroll
+          (parallax), the inner leans toward the pointer. Over-sized (scale) so
+          neither motion ever exposes an edge. */}
+      <motion.div
         aria-hidden
-        className="pointer-events-none absolute inset-0 w-screen bg-no-repeat bg-cover bg-center"
-        style={{ backgroundImage: "url('/sol-waves.png')" }}
-      />
+        className="pointer-events-none absolute inset-0"
+        style={{ y: reduce ? 0 : bgY }}
+      >
+        <motion.div
+          className="absolute inset-0 w-screen bg-no-repeat bg-cover bg-center scale-110"
+          style={{
+            backgroundImage: "url('/sol-waves.png')",
+            x: reduce ? 0 : driftX,
+            y: reduce ? 0 : driftY,
+          }}
+        />
+      </motion.div>
       {/* Left-weighted dark overlay keeps the headline column high-contrast while
           letting the waves breathe on the right. */}
       <div
@@ -123,6 +175,69 @@ interface ProofBlockCardProps {
   issuedDate: string;
 }
 
+const HEX = "0123456789abcdef";
+
+/** Scramble the alphanumeric chars of a signature, preserving separators like "…". */
+function scramble(sig: string): string {
+  return sig
+    .split("")
+    .map((c) => (/[a-zA-Z0-9]/.test(c) ? HEX[Math.floor(Math.random() * HEX.length)] : c))
+    .join("");
+}
+
+/**
+ * Drives the hero's signature moment: the proof "resolves". The TX signature
+ * scrambles through hex for a beat while authenticity reads VERIFYING…, then
+ * settles to the real signature and pops to VERIFIED MATCH — looping quietly so
+ * the card feels alive without demanding attention.
+ *
+ * Returns the settled state immediately (no interval) under reduced motion.
+ */
+function useProofResolve(realSig: string) {
+  const reduce = useReducedMotion();
+  const [display, setDisplay] = useState(realSig);
+  const [verified, setVerified] = useState(true);
+
+  useEffect(() => {
+    if (reduce) {
+      setDisplay(realSig);
+      setVerified(true);
+      return;
+    }
+
+    let scrambleTimer: ReturnType<typeof setInterval> | undefined;
+    let settleTimer: ReturnType<typeof setTimeout> | undefined;
+    let cycleTimer: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+
+    const runCycle = () => {
+      if (cancelled) return;
+      setVerified(false);
+      // Scramble for ~1.1s, updating a few times a second.
+      scrambleTimer = setInterval(() => setDisplay(scramble(realSig)), 70);
+      settleTimer = setTimeout(() => {
+        clearInterval(scrambleTimer);
+        setDisplay(realSig);
+        setVerified(true);
+      }, 1100);
+      // Idle in the verified state, then re-run.
+      cycleTimer = setTimeout(runCycle, 6000);
+    };
+
+    // Small initial delay so the card is settled on first paint, then animates.
+    cycleTimer = setTimeout(runCycle, 1400);
+
+    return () => {
+      cancelled = true;
+      clearInterval(scrambleTimer);
+      clearTimeout(settleTimer);
+      clearTimeout(cycleTimer);
+    };
+  }, [realSig, reduce]);
+
+  return { display, verified };
+}
+
 function ProofBlockCard({
   txSignature,
   slot,
@@ -131,8 +246,11 @@ function ProofBlockCard({
   issuer,
   issuedDate,
 }: ProofBlockCardProps) {
+  const reduce = useReducedMotion();
+  const { display, verified } = useProofResolve(txSignature);
+
   const rows: Array<[string, React.ReactNode]> = [
-    ["TX SIGNATURE", <span className="font-mono text-[13px] text-txt-primary select-all break-all">{txSignature}</span>],
+    ["TX SIGNATURE", <span className={`font-mono text-[13px] select-all break-all transition-colors duration-200 ${verified ? "text-txt-primary" : "text-role-candidate"}`}>{display}</span>],
     ["SLOT", <span className="font-mono text-[13px] text-txt-primary font-medium">{slot}</span>],
     ["CREDENTIAL TYPE", <span className="font-sans text-[13px] text-txt-primary font-medium">{credentialType}</span>],
     ["CANDIDATE", <span className="font-sans text-[13px] text-txt-primary font-medium">{candidate}</span>],
@@ -142,7 +260,11 @@ function ProofBlockCard({
 
   return (
     // Clean glass card — subtle border + soft shadow (no heavy purple glow/ring).
-    <div className="bg-bg-surface/80 backdrop-blur-xl border border-border-main rounded-xl p-6 w-full max-w-[480px] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.5)] transition-colors duration-200 hover:border-border-strong">
+    // The border warms to hash-green the instant the proof resolves.
+    <div
+      className="bg-bg-surface/80 backdrop-blur-xl border rounded-xl p-6 w-full max-w-[480px] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.5)] transition-colors duration-300 hover:border-border-strong"
+      style={{ borderColor: verified ? "color-mix(in srgb, var(--hash-green) 40%, var(--border-main))" : "var(--border-main)" }}
+    >
       {/* Header */}
       <div className="flex items-center justify-between pb-5 border-b border-border-main mb-5">
         <div className="flex items-center gap-2">
@@ -167,14 +289,30 @@ function ProofBlockCard({
           </div>
         ))}
 
-        {/* Authenticity Result */}
+        {/* Authenticity Result — flips between VERIFYING… and VERIFIED MATCH as
+            the proof resolves. The verified state pops in for emphasis. */}
         <div className="grid grid-cols-12 gap-2 items-center pt-2">
           <div className="col-span-5 font-mono text-[10px] text-txt-muted uppercase tracking-wider">
             AUTHENTICITY
           </div>
-          <div className="col-span-7 font-sans text-[13px] text-hash-green font-bold flex items-center gap-1.5">
-            <Check className="w-4 h-4" strokeWidth={2.5} />
-            <span>VERIFIED MATCH</span>
+          <div className="col-span-7 font-sans text-[13px] font-bold flex items-center gap-1.5">
+            {verified ? (
+              <motion.span
+                key="verified"
+                className="flex items-center gap-1.5 text-hash-green"
+                initial={reduce ? false : { scale: 0.6, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ type: "spring", stiffness: 520, damping: 16 }}
+              >
+                <Check className="w-4 h-4" strokeWidth={2.5} />
+                <span>VERIFIED MATCH</span>
+              </motion.span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-role-candidate">
+                <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} />
+                <span>VERIFYING…</span>
+              </span>
+            )}
           </div>
         </div>
       </div>
