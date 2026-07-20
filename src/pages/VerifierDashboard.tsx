@@ -1,7 +1,6 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  ShieldCheck,
   Search,
   Bookmark,
   User,
@@ -10,18 +9,13 @@ import {
   Key,
   FileText,
   Check,
-  Signal,
-  Loader2,
   MessageSquare,
-  Sparkles,
   Trophy,
-  Coins,
 } from "lucide-react";
 import DashboardShell, { NavGroup } from "../components/DashboardShell";
 import { useAuth } from "../context/AuthContext";
 import { disconnectSocket, getSocket } from "../services/socket";
 import {
-  searchTalent,
   getTalentFeed,
   getChatRooms,
   initializeChat,
@@ -31,23 +25,13 @@ import {
 import { TalentEntry, normalizeTalent, useShortlist } from "../components/verifier/talent";
 import TalentCard from "../components/verifier/TalentCard";
 import FindTalentTab from "../components/verifier/FindTalentTab";
-import { TalentProfile } from "../components/verifier/talentData";
+import { TALENT_FEED, TalentProfile } from "../components/verifier/talentData";
+import { getPortraitFor } from "../lib/portraits";
 import ChatDrawer, { ChatRoom, roomCounterpart } from "../components/verifier/ChatDrawer";
 import BountiesTab, { Bounty } from "../components/verifier/BountiesTab";
 import { getAvatarFor, saveAvatar, validateAvatarFile, readAvatarFile } from "../lib/avatars";
 
-type Tab = "talent" | "verify" | "shortlist" | "bounties" | "chats" | "logs" | "api" | "settings" | "help";
-
-// Backend trust-tier vocabulary (minimum-tier filter): learner → practitioner →
-// proven_practitioner → expert → master. Empty string = any tier.
-const TIER_FILTERS: { value: string; label: string }[] = [
-  { value: "", label: "Any tier" },
-  { value: "learner", label: "Learner+" },
-  { value: "practitioner", label: "Practitioner+" },
-  { value: "proven_practitioner", label: "Proven practitioner+" },
-  { value: "expert", label: "Expert+" },
-  { value: "master", label: "Master" },
-];
+type Tab = "talent" | "shortlist" | "bounties" | "chats" | "logs" | "api" | "settings" | "help";
 
 export default function VerifierDashboard() {
   const { user: authUser, logout } = useAuth();
@@ -55,7 +39,6 @@ export default function VerifierDashboard() {
   const myUserId = authUser?.id || "";
   const [activeTab, setActiveTab] = useState<Tab>("talent");
   const [searchQuery, setSearchQuery] = useState("");
-  const [query, setQuery] = useState("");
 
   // ── Display identity from AuthContext (no raw localStorage parsing) ──
   // avatarVersion bumps after an upload so the memo re-reads localStorage.
@@ -99,35 +82,6 @@ export default function VerifierDashboard() {
   useEffect(() => {
     localStorage.setItem("credchain_role", "verifier");
   }, []);
-
-  // ── Talent search (GET /api/v1/talent/search) ──
-  const [talentQuery, setTalentQuery] = useState("");
-  const [tierFilter, setTierFilter] = useState("");
-  const [results, setResults] = useState<TalentEntry[]>([]);
-  const [resultsTotal, setResultsTotal] = useState(0);
-  const [searching, setSearching] = useState(false);
-  const [searched, setSearched] = useState(false);
-  const [searchError, setSearchError] = useState<string | null>(null);
-
-  const runTalentSearch = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setSearching(true);
-    setSearchError(null);
-    try {
-      const res: any = await searchTalent({ q: talentQuery.trim() || undefined, tier: tierFilter || undefined, limit: 12 });
-      // Backend returns { students, total, page, pages } (not `results`).
-      const list = Array.isArray(res?.students) ? res.students : Array.isArray(res?.results) ? res.results : [];
-      setResults(list.map(normalizeTalent).filter((t: TalentEntry) => t.userId));
-      setResultsTotal(typeof res?.total === "number" ? res.total : list.length);
-      setSearched(true);
-    } catch (err: any) {
-      setSearchError(err?.message || "Talent search failed.");
-      setResults([]);
-      setSearched(true);
-    } finally {
-      setSearching(false);
-    }
-  };
 
   // ── Discover feed (GET /api/v1/employer/talent-feed) ──
   const [feed, setFeed] = useState<TalentEntry[]>([]);
@@ -290,6 +244,40 @@ export default function VerifierDashboard() {
   // ── Shortlist (starred candidates, localStorage) ──
   const { shortlist, isShortlisted, toggleShortlist } = useShortlist();
 
+  // Shortlist suggestions: same profile pool as Find Talent (TALENT_FEED),
+  // topped up with live feed entries when available. Highest CredScore first.
+  const suggestions = useMemo(() => {
+    const fromPool: TalentEntry[] = TALENT_FEED.map((p) => ({
+      userId: p.id,
+      name: p.name,
+      headline: p.headline,
+      credScore: p.credScore,
+      highestTier: p.highestTier,
+      skillTags: p.skillTags,
+      university: p.university,
+      location: [p.location?.city, p.location?.country].filter(Boolean).join(", ") || undefined,
+      // Seed id doubles as the public CredChain id so "View profile" links to a
+      // real public portfolio at /verify/:id; portrait keeps the avatar visible.
+      credchainId: p.id,
+      photo: getPortraitFor(p.name),
+      deliveriesCompleted: p.deliveries,
+    }));
+    const seen = new Set(fromPool.map((t) => t.userId));
+    // The live /employer/talent-feed returns a sparse shape ({id, name,
+    // credchainId, verified[]}) with no credScore/skills/tier, so those entries
+    // normalize to near-empty cards. Only top up with feed entries that carry
+    // enough data to render a real suggestion — otherwise an empty shell
+    // backfills the slot freed when a rich profile is shortlisted.
+    const liveEntries = feed.filter(
+      (t) => !seen.has(t.userId) && (typeof t.credScore === "number" || t.skillTags.length > 0)
+    );
+    const merged = [...fromPool, ...liveEntries];
+    return merged
+      .filter((t) => !isShortlisted(t.userId))
+      .sort((a, b) => (b.credScore || 0) - (a.credScore || 0))
+      .slice(0, 6);
+  }, [feed, isShortlisted]);
+
   // ── Activity log: client-side assembly from rooms + bounties ──
   const activityLog = useMemo(() => {
     const entries: Array<{ id: string; label: string; detail: string; at: string | undefined; kind: string }> = [];
@@ -332,12 +320,6 @@ export default function VerifierDashboard() {
       e.detail.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanQuery = query.trim() || "demo-candidate";
-    navigate(`/verify/${encodeURIComponent(cleanQuery)}`);
-  };
-
   const handleLogout = () => {
     disconnectSocket();
     logout();
@@ -358,7 +340,6 @@ export default function VerifierDashboard() {
       label: "VERIFICATION DESK",
       items: [
         { id: "talent", label: "Find Talent", icon: <Search className="w-4 h-4" strokeWidth={1.75} /> },
-        { id: "verify", label: "Search & Verify", icon: <ShieldCheck className="w-4 h-4" strokeWidth={1.75} /> },
         { id: "shortlist", label: "Saved Shortlist", icon: <Bookmark className="w-4 h-4" strokeWidth={1.75} />, badge: shortlist.length },
         { id: "bounties", label: "Bounties", icon: <Trophy className="w-4 h-4" strokeWidth={1.75} />, badge: bounties.length || undefined },
         { id: "chats", label: "Conversations", icon: <MessageSquare className="w-4 h-4" strokeWidth={1.75} />, badge: rooms.length || undefined },
@@ -388,6 +369,8 @@ export default function VerifierDashboard() {
       onSearchChange={setSearchQuery}
       searchPlaceholder="Search candidate profiles…"
       notificationCount={unlockedRooms || undefined}
+      onNotificationsClick={() => setActiveTab("chats")}
+      showProfileMenu
       onAvatarSelect={handleAvatarSelect}
       onLogout={handleLogout}
       topbarRightExtra={
@@ -403,10 +386,6 @@ export default function VerifierDashboard() {
             <MessageSquare className="w-3 h-3 text-role-verifier" />
             Chat{typeof chatCredits === "number" ? ` · ${chatCredits} credits` : ""}
           </button>
-          <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border-main text-txt-secondary text-[11px] font-mono">
-            <Signal className="w-2.5 h-2.5 text-hash-green animate-pulse-custom" />
-            Solana Mainnet
-          </span>
         </>
       }
     >
@@ -431,190 +410,6 @@ export default function VerifierDashboard() {
         </div>
       )}
 
-      {activeTab === "verify" && (
-        <div className="space-y-8">
-          {/* Page header */}
-          <div className="text-left max-w-3xl">
-            <div className="border-l-2 border-role-verifier pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-4">
-              EMPLOYER VERIFICATION CONSOLE
-            </div>
-            <h1 className="font-display font-bold text-[28px] sm:text-[34px] text-txt-primary tracking-tight leading-tight">
-              Instant on-chain degree verification.
-            </h1>
-            <p className="font-sans text-txt-secondary scale-base mt-2 leading-relaxed">
-              Enter a CredChain credential ID, candidate DID, or Solana transaction hash. The ledger returns a cryptographic match in under a second.
-            </p>
-          </div>
-
-          {/* DOMINANT credential ID search */}
-          <form
-            onSubmit={handleSearch}
-            className="bg-bg-surface border border-border-main rounded-lg p-2 focus-within:border-role-verifier transition-colors"
-          >
-            <div className="flex flex-col sm:flex-row items-stretch gap-2">
-              <div className="flex-1 flex items-center gap-3 px-4">
-                <Search className="w-5 h-5 text-role-verifier flex-shrink-0" />
-                <input
-                  type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Candidate ID, DID, or Solana tx hash"
-                  className="flex-1 bg-transparent border-none py-4 text-base font-mono text-txt-primary focus:outline-none placeholder:text-txt-muted"
-                />
-              </div>
-              <button
-                type="submit"
-                className="px-6 py-3 rounded-md bg-brand-purple hover:bg-brand-purple-dim text-white font-semibold text-sm inline-flex items-center justify-center gap-2 cursor-pointer transition-colors"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                <span>Verify on-chain</span>
-              </button>
-            </div>
-          </form>
-
-          <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono text-txt-muted">
-            <span className="uppercase tracking-wider">// Quick demo query:</span>
-            <button
-              type="button"
-              onClick={() => setQuery("demo-candidate")}
-              className="font-mono text-[11px] text-role-verifier border border-border-main hover:border-role-verifier rounded-md px-2.5 py-1 hover:bg-role-verifier-soft transition-colors cursor-pointer"
-            >
-              demo-candidate
-            </button>
-          </div>
-
-          {/* Stat row */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-            <StatCell label="CHAT CREDITS" value={typeof chatCredits === "number" ? String(chatCredits) : "—"} tone="role" />
-            <StatCell label="CONVERSATIONS" value={String(rooms.length)} />
-            <StatCell label="SAVED SHORTLIST" value={String(shortlist.length)} />
-            <StatCell label="ACTIVE BOUNTIES" value={String(bounties.filter((b) => !["completed", "cancelled"].includes(b.status)).length)} tone="green" />
-          </div>
-
-          {/* ── Talent search (live /api/v1/talent/search) ── */}
-          <div className="space-y-4 text-left">
-            <div>
-              <div className="border-l-2 border-role-verifier pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-3">
-                TALENT SEARCH
-              </div>
-              <h2 className="font-display font-bold text-[22px] text-txt-primary tracking-tight">
-                Search verified talent.
-              </h2>
-              <p className="text-sm text-txt-secondary mt-1">
-                Query candidates by skill or name, filtered by trust tier. Every result is backed by on-chain credentials.
-              </p>
-            </div>
-
-            <form onSubmit={runTalentSearch} className="flex flex-col sm:flex-row gap-2">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-txt-muted" />
-                <input
-                  type="text"
-                  value={talentQuery}
-                  onChange={(e) => setTalentQuery(e.target.value)}
-                  placeholder="Skill, name, or keyword — e.g. React, Solana…"
-                  className="w-full bg-bg-surface border border-border-main pl-9 pr-3 py-2.5 rounded-md text-sm text-txt-primary placeholder:text-txt-muted focus:outline-none focus:border-role-verifier transition-colors"
-                />
-              </div>
-              <select
-                value={tierFilter}
-                onChange={(e) => setTierFilter(e.target.value)}
-                className="bg-bg-surface border border-border-main rounded-md px-3 py-2.5 text-sm text-txt-primary focus:outline-none focus:border-role-verifier transition-colors cursor-pointer"
-              >
-                {TIER_FILTERS.map((t) => (
-                  <option key={t.value} value={t.value}>
-                    {t.label}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                disabled={searching}
-                className="px-5 py-2.5 rounded-md bg-brand-purple hover:bg-brand-purple-dim text-white font-semibold text-sm inline-flex items-center justify-center gap-2 cursor-pointer transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {searching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                {searching ? "Searching…" : "Search talent"}
-              </button>
-            </form>
-
-            {searchError && <div className="text-hash-red text-xs">{searchError}</div>}
-
-            {searched && !searching && !searchError && (
-              results.length === 0 ? (
-                <div className="text-txt-muted text-sm py-10 text-center border border-dashed border-border-main rounded-lg">
-                  No candidates matched — try a broader query or drop the tier filter.
-                </div>
-              ) : (
-                <>
-                  <div className="text-[11px] font-mono text-txt-muted">
-                    {resultsTotal} candidate{resultsTotal === 1 ? "" : "s"} found
-                  </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {results.map((t) => (
-                      <TalentCard
-                        key={t.userId}
-                        entry={t}
-                        shortlisted={isShortlisted(t.userId)}
-                        onToggleShortlist={toggleShortlist}
-                        onMessage={handleMessage}
-                        messaging={messagingId}
-                      />
-                    ))}
-                  </div>
-                </>
-              )
-            )}
-          </div>
-
-          {/* ── Discover talent feed (live /api/v1/employer/talent-feed) ── */}
-          <div className="space-y-4 text-left">
-            <div className="flex items-end justify-between gap-4 flex-wrap">
-              <div>
-                <div className="border-l-2 border-role-verifier pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-3">
-                  DISCOVER TALENT
-                </div>
-                <h2 className="font-display font-bold text-[22px] text-txt-primary tracking-tight flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-role-verifier" strokeWidth={1.75} />
-                  Top-ranked candidates.
-                </h2>
-                <p className="text-sm text-txt-secondary mt-1">
-                  Ranked by CredScore across the network — refreshed as candidates earn new credentials.
-                </p>
-              </div>
-              {typeof chatCredits === "number" && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-border-main text-txt-secondary text-[11px] font-mono">
-                  <Coins className="w-3 h-3 text-role-verifier" />
-                  {chatCredits} chat credit{chatCredits === 1 ? "" : "s"} remaining
-                </span>
-              )}
-            </div>
-
-            {feedLoading ? (
-              <div className="text-txt-muted text-sm py-10 text-center font-mono">Loading talent feed…</div>
-            ) : feedError ? (
-              <div className="text-hash-red text-sm py-10 text-center border border-dashed border-hash-red/30 rounded-lg">{feedError}</div>
-            ) : feed.length === 0 ? (
-              <div className="text-txt-muted text-sm py-10 text-center border border-dashed border-border-main rounded-lg">
-                The talent feed is empty right now — check back as candidates verify credentials.
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {feed.map((t) => (
-                  <TalentCard
-                    key={t.userId}
-                    entry={t}
-                    shortlisted={isShortlisted(t.userId)}
-                    onToggleShortlist={toggleShortlist}
-                    onMessage={handleMessage}
-                    messaging={messagingId}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
       {activeTab === "shortlist" && (
         <div className="space-y-8 text-left">
           <div>
@@ -632,7 +427,7 @@ export default function VerifierDashboard() {
           {shortlist.filter((c) => talentFilterMatch(c, searchQuery)).length === 0 ? (
             <EmptyState
               title={shortlist.length === 0 ? "Your shortlist is empty" : "No candidates match your search"}
-              body="Star candidates from Search & Verify or the talent feed to build your shortlist."
+              body="Star candidates from Find Talent or the suggestions below to build your shortlist."
             />
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -651,26 +446,26 @@ export default function VerifierDashboard() {
             </div>
           )}
 
-          {/* Feed suggestions under the shortlist */}
-          {feed.length > 0 && (
+          {/* Suggestions — same verified pool as Find Talent */}
+          {suggestions.length > 0 && (
             <div className="space-y-4">
               <div className="border-l-2 border-role-verifier pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase">
-                SUGGESTED FROM THE TALENT FEED
+                SUGGESTED CANDIDATES
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {feed
-                  .filter((t) => !isShortlisted(t.userId))
-                  .slice(0, 6)
-                  .map((t) => (
-                    <TalentCard
-                      key={t.userId}
-                      entry={t}
-                      shortlisted={false}
-                      onToggleShortlist={toggleShortlist}
-                      onMessage={handleMessage}
-                      messaging={messagingId}
-                    />
-                  ))}
+              <p className="text-xs text-txt-secondary -mt-2">
+                Top-scoring verified profiles from the talent pool — star one to add it to your shortlist.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger-children">
+                {suggestions.map((t) => (
+                  <TalentCard
+                    key={t.userId}
+                    entry={t}
+                    shortlisted={false}
+                    onToggleShortlist={toggleShortlist}
+                    onMessage={handleMessage}
+                    messaging={messagingId}
+                  />
+                ))}
               </div>
             </div>
           )}
