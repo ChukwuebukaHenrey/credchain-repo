@@ -1,5 +1,6 @@
 import { Send, Stamp, Search } from "lucide-react";
 import FadeIn from "./FadeIn";
+import SpotlightCard from "./motion/SpotlightCard";
 
 interface Step {
   numeral: string;
@@ -9,6 +10,8 @@ interface Step {
   tag: string;
   borderClass: string;
   iconColorClass: string;
+  /** CSS color for the hover spotlight — matches the role accent. */
+  accent: string;
 }
 
 const steps: Step[] = [
@@ -20,6 +23,7 @@ const steps: Step[] = [
     tag: "// CANDIDATE ROLE",
     borderClass: "border-t-role-candidate",
     iconColorClass: "text-role-candidate",
+    accent: "var(--role-candidate)",
   },
   {
     numeral: "02",
@@ -29,6 +33,7 @@ const steps: Step[] = [
     tag: "// ISSUER ROLE",
     borderClass: "border-t-role-issuer",
     iconColorClass: "text-role-issuer",
+    accent: "var(--role-issuer)",
   },
   {
     numeral: "03",
@@ -38,6 +43,7 @@ const steps: Step[] = [
     tag: "// VERIFIER ROLE",
     borderClass: "border-t-role-verifier",
     iconColorClass: "text-role-verifier",
+    accent: "var(--role-verifier)",
   },
 ];
 
@@ -90,12 +96,13 @@ export default function HowItWorks() {
 
 function StepCard({ step, minH }: { step: Step; minH: string }) {
   return (
-    <div
-      className={`relative overflow-hidden bg-bg-surface border border-border-main border-t-[3px] ${step.borderClass} rounded-lg p-8 flex flex-col justify-between ${minH} transition-colors duration-200 hover:border-border-strong`}
+    <SpotlightCard
+      accent={step.accent}
+      className={`bg-bg-surface border border-border-main border-t-[3px] ${step.borderClass} rounded-xl p-8 flex flex-col justify-between ${minH} transition-colors duration-200 hover:border-border-strong`}
     >
-      {/* Watermark numeral at 4% opacity */}
+      {/* Watermark numeral at 4% opacity — lifts to 8% on hover for depth. */}
       <span
-        className="font-display font-bold text-[140px] leading-none text-txt-primary opacity-[0.04] absolute bottom-[-24px] right-2 pointer-events-none select-none"
+        className="font-display font-bold text-[140px] leading-none text-txt-primary opacity-[0.04] group-hover/spot:opacity-[0.08] transition-opacity duration-300 absolute bottom-[-24px] right-2 pointer-events-none select-none"
         aria-hidden
       >
         {step.numeral}
@@ -116,6 +123,6 @@ function StepCard({ step, minH }: { step: Step; minH: string }) {
       <div className="relative z-10 font-mono text-[10px] text-txt-muted tracking-wider uppercase mt-6">
         {step.tag}
       </div>
-    </div>
+    </SpotlightCard>
   );
 }

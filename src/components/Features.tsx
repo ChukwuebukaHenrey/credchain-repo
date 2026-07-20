@@ -1,5 +1,7 @@
 import { Brain, QrCode, Archive, Sparkles, FileSpreadsheet } from "lucide-react";
 import FadeIn from "./FadeIn";
+import { Stagger, StaggerItem } from "./motion/Reveal";
+import SpotlightCard from "./motion/SpotlightCard";
 
 interface Feature {
   icon: React.ReactNode;
@@ -60,27 +62,34 @@ export default function Features() {
           </FadeIn>
         </div>
 
-        {/* 3x2 grid — row 2 has one wide card spanning two columns */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 3x2 grid — row 2 has one wide card spanning two columns. The span
+            class must live on the grid child (StaggerItem), not the inner card,
+            or the grid never honors it. */}
+        <Stagger className="grid grid-cols-1 lg:grid-cols-3 gap-6" gap={0.07}>
           {features.map((f, i) => (
-            <FadeIn key={i} delay={100 + i * 50}>
+            <StaggerItem
+              key={i}
+              className={f.span === 2 ? "lg:col-span-2" : ""}
+            >
               <FeatureCard feature={f} />
-            </FadeIn>
+            </StaggerItem>
           ))}
-        </div>
+        </Stagger>
       </div>
     </section>
   );
 }
 
 function FeatureCard({ feature }: { feature: Feature }) {
-  const spanClass = feature.span === 2 ? "lg:col-span-2" : "";
   return (
-    <div
-      className={`${spanClass} bg-bg-surface border border-border-main rounded-lg p-8 h-full flex flex-col justify-between min-h-[220px] transition-colors duration-200 hover:border-border-strong`}
+    <SpotlightCard
+      className="bg-bg-surface border border-border-main rounded-xl p-8 h-full flex flex-col justify-between min-h-[220px] transition-colors duration-200 hover:border-border-strong"
     >
-      <div className="space-y-4 text-left">
-        {feature.icon}
+      <div className="relative z-10 space-y-4 text-left">
+        {/* Icon tile — brightens on hover so the card reads as enterable. */}
+        <span className="inline-flex items-center justify-center w-11 h-11 rounded-lg bg-brand-purple-soft border border-border-subtle text-txt-secondary transition-colors duration-200 group-hover/spot:text-brand-purple group-hover/spot:border-brand-purple/40">
+          {feature.icon}
+        </span>
         <h3 className="font-display text-txt-primary text-[18px] font-bold">
           {feature.title}
         </h3>
@@ -88,9 +97,9 @@ function FeatureCard({ feature }: { feature: Feature }) {
           {feature.body}
         </p>
       </div>
-      <div className="font-mono text-[10px] text-txt-muted mt-6 uppercase tracking-wider">
+      <div className="relative z-10 font-mono text-[10px] text-txt-muted mt-6 uppercase tracking-wider">
         {feature.tag}
       </div>
-    </div>
+    </SpotlightCard>
   );
 }
