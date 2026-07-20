@@ -3,7 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { AnimatePresence } from "motion/react";
+import PageTransition from "./components/motion/PageTransition";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import ProtectedRoute from "./components/ProtectedRoute";
 import Navbar from "./components/Navbar";
@@ -48,9 +50,18 @@ function Landing() {
 
 function AppRoutes() {
   const { isAuthenticated, role } = useAuth();
-  
+  const location = useLocation();
+
+  // AnimatePresence needs a stable per-screen key so it can animate the old
+  // screen out and the new one in. Key on the top-level path segment (not the
+  // full pathname) so param changes within one screen — e.g. /verify/:id — do
+  // not retrigger a full page transition on every id.
+  const segmentKey = "/" + (location.pathname.split("/")[1] || "");
+
   return (
-    <Routes>
+    <AnimatePresence mode="wait">
+      <PageTransition key={segmentKey}>
+        <Routes location={location}>
       <Route path="/" element={<Landing />} />
       <Route path="/role" element={<RoleSelection />} />
       <Route path="/signup/candidate" element={<SignupCandidate />} />
@@ -138,9 +149,11 @@ function AppRoutes() {
           ) : (
             <Navigate to="/" replace />
           )
-        } 
+        }
       />
-    </Routes>
+        </Routes>
+      </PageTransition>
+    </AnimatePresence>
   );
 }
 

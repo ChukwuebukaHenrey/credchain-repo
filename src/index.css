@@ -23,6 +23,12 @@
   --brand-purple-dim: #4C1D95;
   --brand-purple-soft: rgba(124, 58, 237, 0.12);
 
+  /* Card-fill washes — solid-ish backgrounds for the large "hero block" cards
+     (the two-up colored panels). Our palette equivalent of bitcoin.com's
+     indigo/orange blocks: a deep purple wash and a cooler indigo wash. */
+  --fill-purple: #241247;
+  --fill-indigo: #17143a;
+
   /* Role accents — semantic, never swap */
   --role-candidate: #00D4FF;
   --role-issuer: #10B981;
@@ -59,6 +65,9 @@
   --brand-purple: #6D28D9;
   --brand-purple-dim: #A78BFA;
   --brand-purple-soft: rgba(109, 40, 217, 0.08);
+
+  --fill-purple: #EDE7FA;
+  --fill-indigo: #E7E9F7;
 
   --role-candidate: #0891B2;
   --role-issuer: #059669;
@@ -102,6 +111,9 @@
   --color-brand-purple-dim: var(--brand-purple-dim);
   --color-brand-purple-soft: var(--brand-purple-soft);
 
+  --color-fill-purple: var(--fill-purple);
+  --color-fill-indigo: var(--fill-indigo);
+
   --color-role-candidate: var(--role-candidate);
   --color-role-issuer: var(--role-issuer);
   --color-role-verifier: var(--role-verifier);
@@ -127,6 +139,11 @@
   --radius-sm: 4px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  /* Generous rounding for the large feature/CTA cards (bitcoin.com-style
+     structure, CredChain palette). Kept separate from the tight functional
+     radii above so dense UI chrome stays crisp. */
+  --radius-xl: 20px;
+  --radius-2xl: 28px;
 }
 
 /* ============================================================
@@ -182,6 +199,56 @@ body {
   50% { opacity: 0.35; }
 }
 .animate-pulse-custom { animation: pulseCustom 2s ease-in-out infinite; }
+
+/* Brand/institution logo chip — logos are filled white, so pin a dark chip
+   behind them in BOTH themes to keep them visible. */
+.brand-logo-chip { background-color: #17102a !important; }
+
+/* ============================================================
+   Micro-interactions — sidebar/topbar icons & page entry
+   ============================================================ */
+
+/* Nav / action icons: gentle lift on hover, springy pop on click.
+   Apply .icon-anim to the icon wrapper inside a .group button. */
+.icon-anim {
+  transition: transform 340ms cubic-bezier(0.34, 1.4, 0.64, 1);
+  will-change: transform;
+}
+.group:hover .icon-anim { transform: scale(1.14) rotate(-4deg); }
+.group:active .icon-anim { transform: scale(0.86); }
+
+/* Bell: swings on hover, pops on click */
+@keyframes bellSwing {
+  0% { transform: rotate(0); }
+  20% { transform: rotate(14deg); }
+  40% { transform: rotate(-10deg); }
+  60% { transform: rotate(6deg); }
+  80% { transform: rotate(-3deg); }
+  100% { transform: rotate(0); }
+}
+.group:hover .icon-bell { animation: bellSwing 950ms ease-in-out; transform-origin: top center; }
+.group:active .icon-bell { animation: none; transform: scale(0.86); transition: transform 220ms ease; }
+
+/* Page/tab entry animation (dashboards) */
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.page-enter { animation: pageEnter 560ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+/* Staggered child entry for card grids/sections */
+@keyframes riseIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.stagger-children > * { animation: riseIn 640ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.stagger-children > *:nth-child(1) { animation-delay: 60ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 130ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 200ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 270ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 340ms; }
+.stagger-children > *:nth-child(6) { animation-delay: 410ms; }
+.stagger-children > *:nth-child(n + 7) { animation-delay: 470ms; }
 
 /* Respect reduced motion */
 @media (prefers-reduced-motion: reduce) {

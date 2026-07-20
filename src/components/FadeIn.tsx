@@ -1,42 +1,19 @@
-import { useEffect, useRef, useState, ReactNode } from "react";
+import type { ReactNode } from "react";
+import { Reveal } from "./motion/Reveal";
 
-export default function FadeIn({ children, delay = 0 }: { children: ReactNode; delay?: number }) {
-  const [isVisible, setIsVisible] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting) {
-          setIsVisible(true);
-          observer.unobserve(entry.target);
-        }
-      },
-      { threshold: 0.05 }
-    );
-
-    if (ref.current) {
-      observer.observe(ref.current);
-    }
-
-    return () => {
-      if (ref.current) {
-        observer.unobserve(ref.current);
-      }
-    };
-  }, []);
-
-  return (
-    <div
-      ref={ref}
-      style={{
-        transitionDelay: `${delay}ms`,
-      }}
-      className={`transition-all duration-400 ease-out transform ${
-        isVisible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4"
-      }`}
-    >
-      {children}
-    </div>
-  );
+/**
+ * Back-compat shim. FadeIn was an opacity-only IntersectionObserver reveal;
+ * it now delegates to <Reveal> so every existing call site gets the unified,
+ * reduced-motion-aware scroll reveal without a churn of import changes.
+ *
+ * `delay` stays in milliseconds here (its original unit); Reveal takes seconds.
+ */
+export default function FadeIn({
+  children,
+  delay = 0,
+}: {
+  children: ReactNode;
+  delay?: number;
+}) {
+  return <Reveal delay={delay / 1000}>{children}</Reveal>;
 }
