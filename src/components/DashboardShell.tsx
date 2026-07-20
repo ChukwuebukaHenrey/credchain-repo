@@ -1,6 +1,19 @@
-import { useState, ReactNode } from "react";
+import { useEffect, useRef, useState, ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import { Menu, X, Bell, Search, LogOut, Camera } from "lucide-react";
+import {
+  Menu,
+  X,
+  Bell,
+  Search,
+  LogOut,
+  Camera,
+  PanelLeftClose,
+  PanelLeftOpen,
+  ShieldCheck,
+  ChevronDown,
+  MessageCircle,
+} from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
 import Logo from "./Logo";
 import ThemeToggle from "./ThemeToggle";
 
@@ -45,18 +58,25 @@ interface DashboardShellProps {
   /** Number of unread notifications to show on the bell. */
   notificationCount?: number;
   onNotificationsClick?: () => void;
+  /** Show the topbar chat button; clicking fires this (e.g. open Messages tab). */
+  onMessagesClick?: () => void;
+  /** Unread chat messages to show on the chat button. */
+  messageCount?: number;
   /** When set, the sidebar avatar becomes an upload target for a new profile photo. */
   onAvatarSelect?: (file: File) => void;
   onLogout?: () => void;
+  /** Include the Admin entry in the topbar profile menu. Issuer & verifier only. */
+  showProfileMenu?: boolean;
   children: ReactNode;
 }
 
-const ROLE_ACCENT: Record<DashboardRole, { text: string; border: string; bg: string; ring: string; label: string }> = {
+const ROLE_ACCENT: Record<DashboardRole, { text: string; border: string; bg: string; ring: string; dot: string; label: string }> = {
   candidate: {
     text: "text-role-candidate",
     border: "border-role-candidate",
     bg: "bg-role-candidate-soft",
     ring: "focus:border-role-candidate",
+    dot: "bg-role-candidate",
     label: "CANDIDATE",
   },
   issuer: {
@@ -64,6 +84,7 @@ const ROLE_ACCENT: Record<DashboardRole, { text: string; border: string; bg: str
     border: "border-role-issuer",
     bg: "bg-role-issuer-soft",
     ring: "focus:border-role-issuer",
+    dot: "bg-role-issuer",
     label: "ISSUER",
   },
   verifier: {
@@ -71,6 +92,7 @@ const ROLE_ACCENT: Record<DashboardRole, { text: string; border: string; bg: str
     border: "border-role-verifier",
     bg: "bg-role-verifier-soft",
     ring: "focus:border-role-verifier",
+    dot: "bg-role-verifier",
     label: "VERIFIER",
   },
 };
@@ -78,6 +100,8 @@ const ROLE_ACCENT: Record<DashboardRole, { text: string; border: string; bg: str
 export function roleAccent(role: DashboardRole) {
   return ROLE_ACCENT[role];
 }
+
+const COLLAPSE_KEY = "cc_sidebar_collapsed";
 
 export default function DashboardShell({
   role,
@@ -92,14 +116,48 @@ export default function DashboardShell({
   searchPlaceholder = "Search…",
   notificationCount,
   onNotificationsClick,
+  onMessagesClick,
+  messageCount,
   onAvatarSelect,
   onLogout,
+  showProfileMenu = false,
   children,
 }: DashboardShellProps) {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
+  // Desktop-only collapse (Claude-style icon rail). Persisted per browser.
+  const [collapsed, setCollapsed] = useState<boolean>(
+    () => typeof window !== "undefined" && window.localStorage.getItem(COLLAPSE_KEY) === "1"
+  );
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
   const accent = ROLE_ACCENT[role];
   const initials = user.initials || user.name.split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
+
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      window.localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+      return next;
+    });
+  };
+
+  // Close the profile dropdown on outside click / Escape.
+  useEffect(() => {
+    if (!profileOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) setProfileOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setProfileOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [profileOpen]);
 
   const handleLogout = () => {
     if (onLogout) {
@@ -113,17 +171,45 @@ export default function DashboardShell({
     }
   };
 
+  const avatarBox = (size: string, rounded = "rounded-md") => (
+    <div
+      className={`group/avatar ${size} ${rounded} flex items-center justify-center font-mono text-sm font-semibold ${accent.bg} ${accent.text} border border-border-main flex-shrink-0 overflow-hidden relative`}
+    >
+      {user.photo ? (
+        <img
+          src={user.photo}
+          alt={user.name}
+          className={`w-full h-full ${user.photoFit === "contain" ? "object-contain p-0.5" : "object-cover object-[center_top]"}`}
+        />
+      ) : (
+        initials
+      )}
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-bg-base text-txt-primary flex">
       {/* Sidebar */}
       <aside
-        className={`fixed lg:sticky top-0 left-0 z-40 h-screen w-64 bg-bg-surface border-r border-border-main flex flex-col transition-transform duration-200 ${
-          mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"
-        }`}
+        className={`fixed lg:sticky top-0 left-0 z-40 h-screen bg-bg-surface border-r border-border-main flex flex-col transition-[transform,width] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
+          collapsed ? "w-64 lg:w-[68px]" : "w-64"
+        } ${mobileOpen ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
-        {/* Top: Logo + role tag */}
-        <div className="px-5 py-5 border-b border-border-subtle flex items-center justify-between">
-          <Logo wordmarkSize="sm" />
+        {/* Top: Logo + collapse toggle */}
+        <div
+          className={`h-[69px] border-b border-border-subtle flex items-center flex-shrink-0 ${
+            collapsed ? "lg:justify-center lg:px-0 px-5 justify-between" : "px-5 justify-between"
+          }`}
+        >
+          <span className={collapsed ? "lg:hidden" : ""}>
+            <Logo wordmarkSize="sm" />
+          </span>
+          {/* Collapsed: logo mark only */}
+          {collapsed && (
+            <span className="hidden lg:block">
+              <Logo wordmarkSize="sm" showWordmark={false} />
+            </span>
+          )}
           <button
             onClick={() => setMobileOpen(false)}
             className="lg:hidden text-txt-muted hover:text-txt-primary p-1"
@@ -131,19 +217,52 @@ export default function DashboardShell({
           >
             <X className="w-5 h-5" />
           </button>
+          {!collapsed && (
+            <button
+              onClick={toggleCollapsed}
+              className="group hidden lg:inline-flex items-center justify-center w-7 h-7 rounded-md text-txt-muted hover:text-txt-primary hover:bg-bg-elevated transition-colors cursor-pointer"
+              aria-label="Collapse sidebar"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose className="w-4 h-4 icon-anim" strokeWidth={1.75} />
+            </button>
+          )}
         </div>
 
-        <div className={`px-5 py-3 border-b border-border-subtle font-mono text-[10px] tracking-[0.18em] uppercase ${accent.text}`}>
+        {collapsed && (
+          <div className="hidden lg:flex justify-center py-2 border-b border-border-subtle flex-shrink-0">
+            <button
+              onClick={toggleCollapsed}
+              className="group inline-flex items-center justify-center w-9 h-9 rounded-md text-txt-muted hover:text-txt-primary hover:bg-bg-elevated transition-colors cursor-pointer"
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+            >
+              <PanelLeftOpen className="w-4 h-4 icon-anim" strokeWidth={1.75} />
+            </button>
+          </div>
+        )}
+
+        <div
+          className={`px-5 py-3 border-b border-border-subtle font-mono text-[10px] tracking-[0.18em] uppercase flex-shrink-0 ${accent.text} ${
+            collapsed ? "lg:hidden" : ""
+          }`}
+        >
           {accent.label} CONSOLE
         </div>
 
         {/* Nav groups */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-6">
+        <nav className={`flex-1 overflow-y-auto py-4 space-y-6 ${collapsed ? "px-3 lg:px-2.5" : "px-3"}`}>
           {navGroups.map((group) => (
             <div key={group.label}>
-              <div className="px-3 mb-2 font-mono text-[10px] tracking-[0.18em] uppercase text-txt-muted">
+              <div
+                className={`px-3 mb-2 font-mono text-[10px] tracking-[0.18em] uppercase text-txt-muted ${
+                  collapsed ? "lg:hidden" : ""
+                }`}
+              >
                 {group.label}
               </div>
+              {/* Collapsed: thin divider stands in for the group label */}
+              {collapsed && <div className="hidden lg:block mx-2 mb-2 border-t border-border-subtle" />}
               <ul className="space-y-0.5">
                 {group.items.map((item) => {
                   const isActive = activeTab === item.id;
@@ -155,21 +274,41 @@ export default function DashboardShell({
                           onTabChange(item.id);
                           setMobileOpen(false);
                         }}
-                        className={`w-full flex items-center justify-between gap-3 px-3 py-2 rounded-md text-sm font-medium text-left transition-colors ${
+                        title={item.label}
+                        className={`group relative w-full flex items-center gap-3 rounded-md text-sm font-medium text-left transition-colors cursor-pointer ${
+                          collapsed
+                            ? "lg:justify-center lg:px-0 lg:py-2.5 justify-between px-3 py-2"
+                            : "justify-between px-3 py-2"
+                        } ${
                           isActive
-                            ? `${accent.bg} ${accent.text} border-l-2 ${accent.border} pl-[10px]`
-                            : "text-txt-secondary hover:text-txt-primary hover:bg-bg-elevated border-l-2 border-transparent"
+                            ? `${accent.bg} ${accent.text} pl-[10px]`
+                            : `text-txt-secondary hover:text-txt-primary hover:bg-bg-elevated`
                         }`}
                       >
-                        <span className="flex items-center gap-3">
-                          <span className="w-4 h-4 flex items-center justify-center">{item.icon}</span>
-                          <span>{item.label}</span>
+                        {/* Active indicator — a shared-layout bar that glides
+                            between tabs instead of snapping on each switch. */}
+                        {isActive && !collapsed && (
+                          <motion.span
+                            layoutId={`nav-indicator-${role}`}
+                            className={`absolute left-0 top-0 bottom-0 w-[2px] rounded-full ${accent.dot}`}
+                            transition={{ type: "spring", stiffness: 500, damping: 40 }}
+                          />
+                        )}
+                        <span className={`flex items-center gap-3 ${collapsed ? "lg:gap-0" : ""}`}>
+                          <span className="relative w-4 h-4 flex items-center justify-center icon-anim">
+                            {item.icon}
+                            {/* Collapsed: badge becomes a dot on the icon */}
+                            {collapsed && item.badge !== undefined && item.badge !== null && Number(item.badge) > 0 && (
+                              <span className={`hidden lg:block absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full ${accent.dot}`} />
+                            )}
+                          </span>
+                          <span className={collapsed ? "lg:hidden" : ""}>{item.label}</span>
                         </span>
                         {item.badge !== undefined && item.badge !== null && (
                           <span
                             className={`font-mono text-[10px] px-1.5 py-0.5 rounded-sm ${
                               isActive ? accent.bg : "bg-bg-elevated"
-                            } ${accent.text}`}
+                            } ${accent.text} ${collapsed ? "lg:hidden" : ""}`}
                           >
                             {item.badge}
                           </span>
@@ -184,7 +323,11 @@ export default function DashboardShell({
         </nav>
 
         {/* Bottom: User pill + logout */}
-        <div className="border-t border-border-subtle p-4 flex items-center gap-3">
+        <div
+          className={`border-t border-border-subtle p-4 flex items-center gap-3 flex-shrink-0 ${
+            collapsed ? "lg:flex-col lg:p-3 lg:gap-2" : ""
+          }`}
+        >
           <div
             className={`group w-9 h-9 rounded-md flex items-center justify-center font-mono text-sm font-semibold ${accent.bg} ${accent.text} border border-border-main flex-shrink-0 overflow-hidden relative`}
           >
@@ -192,7 +335,7 @@ export default function DashboardShell({
               <img
                 src={user.photo}
                 alt={user.name}
-                className={`w-full h-full ${user.photoFit === "contain" ? "object-contain p-0.5" : "object-cover"}`}
+                className={`w-full h-full ${user.photoFit === "contain" ? "object-contain p-0.5" : "object-cover object-[center_top]"}`}
               />
             ) : (
               initials
@@ -217,7 +360,7 @@ export default function DashboardShell({
               </label>
             )}
           </div>
-          <div className="flex-1 min-w-0">
+          <div className={`flex-1 min-w-0 ${collapsed ? "lg:hidden" : ""}`}>
             <div className="text-sm font-medium text-txt-primary truncate">{user.name}</div>
             {user.subtitle && (
               <div className="text-[11px] font-mono text-txt-muted truncate">{user.subtitle}</div>
@@ -227,9 +370,9 @@ export default function DashboardShell({
             onClick={handleLogout}
             aria-label="Sign out"
             title="Sign out"
-            className="text-txt-muted hover:text-txt-primary p-1.5 rounded-md transition-colors"
+            className="group text-txt-muted hover:text-txt-primary p-1.5 rounded-md transition-colors cursor-pointer"
           >
-            <LogOut className="w-4 h-4" strokeWidth={1.75} />
+            <LogOut className="w-4 h-4 icon-anim" strokeWidth={1.75} />
           </button>
         </div>
       </aside>
@@ -272,29 +415,126 @@ export default function DashboardShell({
             )}
           </div>
 
-          {/* Right slot */}
-          <div className="flex items-center gap-3">
+          {/* Right slot — pill user chip · bell · chat · avatar (topbar_component design) */}
+          <div className="flex items-center gap-2 sm:gap-3">
             {topbarRightExtra}
             <ThemeToggle />
+
+            {/* User pill: avatar + stacked role/name + chevron → profile dropdown */}
+            <div className="relative" ref={profileRef}>
+              <button
+                type="button"
+                onClick={() => setProfileOpen((o) => !o)}
+                aria-label="Account menu"
+                aria-expanded={profileOpen}
+                className="group inline-flex items-center gap-2 rounded-full border border-border-main bg-bg-surface hover:border-border-strong pl-1 pr-2 py-1 transition-colors duration-300 cursor-pointer"
+              >
+                {avatarBox("w-7 h-7", "rounded-full")}
+                <span className="hidden md:flex flex-col items-start leading-tight text-left">
+                  <span className="text-[10px] font-mono text-txt-muted uppercase tracking-wide">
+                    {accent.label.toLowerCase()}
+                  </span>
+                  <span className="text-xs font-semibold text-txt-primary truncate max-w-[120px]">
+                    {user.name}
+                  </span>
+                </span>
+                <ChevronDown
+                  className={`w-3.5 h-3.5 text-txt-muted transition-transform duration-300 ${
+                    profileOpen ? "rotate-180" : ""
+                  }`}
+                  strokeWidth={2}
+                />
+              </button>
+
+              {profileOpen && (
+                <div className="absolute right-0 top-full mt-2 w-56 bg-bg-surface border border-border-main rounded-lg shadow-xl shadow-black/30 overflow-hidden page-enter z-50">
+                  <div className="px-4 py-3 border-b border-border-subtle">
+                    <div className="text-sm font-medium text-txt-primary truncate">{user.name}</div>
+                    {user.subtitle && (
+                      <div className="text-[11px] font-mono text-txt-muted truncate mt-0.5">{user.subtitle}</div>
+                    )}
+                  </div>
+                  <div className="py-1.5">
+                    {showProfileMenu && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setProfileOpen(false);
+                          navigate("/admin");
+                        }}
+                        className="group w-full flex items-center gap-2.5 px-4 py-2 text-sm text-txt-secondary hover:text-txt-primary hover:bg-bg-elevated transition-colors cursor-pointer"
+                      >
+                        <ShieldCheck className="w-4 h-4 icon-anim" strokeWidth={1.75} />
+                        Admin
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfileOpen(false);
+                        handleLogout();
+                      }}
+                      className="group w-full flex items-center gap-2.5 px-4 py-2 text-sm text-txt-secondary hover:text-hash-red hover:bg-bg-elevated transition-colors cursor-pointer"
+                    >
+                      <LogOut className="w-4 h-4 icon-anim" strokeWidth={1.75} />
+                      Log out
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bell with red count badge */}
             <button
               onClick={onNotificationsClick}
               aria-label="Notifications"
-              className="relative inline-flex items-center justify-center w-9 h-9 rounded-md border border-border-main bg-bg-surface text-txt-secondary hover:text-txt-primary hover:border-brand-purple transition-colors"
+              className="group relative inline-flex items-center justify-center w-9 h-9 rounded-full text-txt-secondary hover:text-txt-primary hover:bg-bg-elevated transition-colors duration-300 cursor-pointer"
             >
-              <Bell className="w-4 h-4" strokeWidth={1.75} />
+              <Bell className="w-[18px] h-[18px] icon-bell" strokeWidth={1.75} />
               {notificationCount !== undefined && notificationCount > 0 && (
-                <span
-                  className={`absolute top-1 right-1 min-w-[16px] h-4 px-1 rounded-sm text-[9px] font-mono font-bold flex items-center justify-center ${accent.text} ${accent.bg} border border-border-main`}
-                >
+                <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-mono font-bold flex items-center justify-center text-white bg-hash-red border-2 border-bg-base">
                   {notificationCount}
                 </span>
               )}
             </button>
+
+            {/* Chat bubble button */}
+            {onMessagesClick && (
+              <button
+                onClick={onMessagesClick}
+                aria-label="Messages"
+                className="group relative inline-flex items-center justify-center w-9 h-9 rounded-full bg-bg-elevated text-txt-secondary hover:text-txt-primary transition-colors duration-300 cursor-pointer"
+              >
+                <MessageCircle className="w-[18px] h-[18px] icon-anim" strokeWidth={1.75} />
+                {messageCount !== undefined && messageCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full text-[9px] font-mono font-bold flex items-center justify-center text-white bg-hash-red border-2 border-bg-base">
+                    {messageCount}
+                  </span>
+                )}
+              </button>
+            )}
+
+            {/* Standalone round avatar (far right, per design) */}
+            <span className="hidden sm:block">{avatarBox("w-8 h-8", "rounded-full")}</span>
           </div>
         </header>
 
-        {/* Page content */}
-        <main className="flex-1 overflow-auto p-6 lg:p-8">{children}</main>
+        {/* Page content — crossfade + rise on tab change. AnimatePresence with
+            mode="wait" animates the old tab out before the new one enters. The
+            global prefers-reduced-motion rule collapses these durations. */}
+        <main className="flex-1 overflow-auto p-6 lg:p-8">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
+        </main>
       </div>
     </div>
   );
