@@ -244,10 +244,28 @@ export default function VerifierDashboard() {
   // ── Shortlist (starred candidates, localStorage) ──
   const { shortlist, isShortlisted, toggleShortlist } = useShortlist();
 
-  // Shortlist suggestions: same profile pool as Find Talent (TALENT_FEED),
-  // topped up with live feed entries when available. Highest CredScore first.
+  // Shortlist suggestions: prefer real profiles from the live talent feed,
+  // topped up with the TALENT_FEED fixture only when the feed is thin. Highest
+  // CredScore first.
+  //
+  // Every candidate — live or fixture — must carry a credScore or skill tags to
+  // qualify. This is the guard against the "empty profile" bug: a candidate with
+  // no renderable data would otherwise backfill the slot freed when a populated
+  // profile is shortlisted, showing a card with just a name and "CredScore —".
+  const hasRenderableData = (t: TalentEntry) =>
+    typeof t.credScore === "number" || t.skillTags.length > 0;
+
   const suggestions = useMemo(() => {
-    const fromPool: TalentEntry[] = TALENT_FEED.map((p) => ({
+    // Real feed profiles first — the backend now returns the full search shape
+    // (credScore/skillTags/tier/university/location/avatar), so these render as
+    // complete cards and link to genuine public portfolios.
+    const liveEntries = feed.filter(hasRenderableData);
+    const seen = new Set(liveEntries.map((t) => t.userId));
+
+    // Fixture pool tops up remaining slots so the section is never sparse in a
+    // fresh/empty environment. Skipped once a live profile with the same id is
+    // present, to avoid the same person appearing twice across id spaces.
+    const fromPool: TalentEntry[] = TALENT_FEED.filter((p) => !seen.has(p.id)).map((p) => ({
       userId: p.id,
       name: p.name,
       headline: p.headline,
@@ -262,18 +280,9 @@ export default function VerifierDashboard() {
       photo: getPortraitFor(p.name),
       deliveriesCompleted: p.deliveries,
     }));
-    const seen = new Set(fromPool.map((t) => t.userId));
-    // The live /employer/talent-feed returns a sparse shape ({id, name,
-    // credchainId, verified[]}) with no credScore/skills/tier, so those entries
-    // normalize to near-empty cards. Only top up with feed entries that carry
-    // enough data to render a real suggestion — otherwise an empty shell
-    // backfills the slot freed when a rich profile is shortlisted.
-    const liveEntries = feed.filter(
-      (t) => !seen.has(t.userId) && (typeof t.credScore === "number" || t.skillTags.length > 0)
-    );
-    const merged = [...fromPool, ...liveEntries];
-    return merged
-      .filter((t) => !isShortlisted(t.userId))
+
+    return [...liveEntries, ...fromPool]
+      .filter((t) => hasRenderableData(t) && !isShortlisted(t.userId))
       .sort((a, b) => (b.credScore || 0) - (a.credScore || 0))
       .slice(0, 6);
   }, [feed, isShortlisted]);
