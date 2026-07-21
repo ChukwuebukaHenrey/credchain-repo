@@ -1,13 +1,12 @@
-import { Github } from "lucide-react";
+import { useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import Logo from "./Logo";
-import { Reveal } from "./motion/Reveal";
-
-const XIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden>
-    <path d="M9.6 0h1.9l-4.2 4.8L12.1 12H8.3L5.3 8.1 1.9 12H0l4.5-5.1L0 0h3.9l2.7 3.6L9.6 0zm-.7 10.1h1L3.9 1h-1.1l6.1 9.1z" />
-  </svg>
-);
+import {
+  motion,
+  useMotionValue,
+  useReducedMotion,
+  useSpring,
+  useTransform,
+} from "motion/react";
 
 interface FooterLink {
   name: string;
@@ -15,6 +14,8 @@ interface FooterLink {
   href?: string;
   /** Router route. */
   to?: string;
+  /** Absolute external URL (opens in a new tab). */
+  external?: string;
 }
 
 interface FooterColumn {
@@ -22,6 +23,8 @@ interface FooterColumn {
   links: FooterLink[];
 }
 
+// Real footer content — every entry points at a route/anchor that actually
+// exists (no aspirational dead links), laid out in the inspo's column grid.
 const columns: FooterColumn[] = [
   {
     heading: "Product",
@@ -29,6 +32,7 @@ const columns: FooterColumn[] = [
       { name: "How it works", href: "#how-it-works" },
       { name: "Features", href: "#features" },
       { name: "Verification", href: "#ledger" },
+      { name: "Who it's for", href: "#who-its-for" },
     ],
   },
   {
@@ -37,108 +41,170 @@ const columns: FooterColumn[] = [
       { name: "Candidates", to: "/signup/candidate" },
       { name: "Institutions", to: "/signup/issuer" },
       { name: "Employers", to: "/signup/verifier" },
+      { name: "Try a demo", to: "/login?demo=true" },
     ],
   },
   {
     heading: "Company",
     links: [
-      { name: "Who it's for", href: "#who-its-for" },
       { name: "Sign in", to: "/login" },
-      { name: "Try a demo", to: "/login?demo=true" },
+      { name: "Create account", to: "/role" },
+    ],
+  },
+  {
+    heading: "Connect",
+    links: [
+      { name: "GitHub", external: "https://github.com" },
+      { name: "X (Twitter)", external: "https://x.com" },
     ],
   },
 ];
 
-export default function Footer() {
+/** One footer link — router push, in-page anchor, or external tab. Bold white,
+ * larger than its muted header; on hover it warms toward the cyan accent. */
+function FooterItem({ link }: { link: FooterLink }) {
   const navigate = useNavigate();
+  const cls =
+    "font-display text-[15px] font-bold text-txt-primary hover:text-role-candidate transition-colors cursor-pointer";
+  if (link.to) {
+    return (
+      <button onClick={() => navigate(link.to!)} className={cls}>
+        {link.name}
+      </button>
+    );
+  }
+  if (link.external) {
+    return (
+      <a href={link.external} target="_blank" rel="noopener noreferrer" className={cls}>
+        {link.name}
+      </a>
+    );
+  }
+  return (
+    <a href={link.href} className={cls}>
+      {link.name}
+    </a>
+  );
+}
+
+export default function Footer() {
+  const reduce = useReducedMotion();
+  const sectionRef = useRef<HTMLDivElement>(null);
+
+  // Pointer parallax on the wordmark backdrop — the blueprint grid + waves lean
+  // a few px toward the cursor, springed so they trail rather than snap. The
+  // wordmark itself drifts the opposite way for depth. All disabled under
+  // reduced motion (and the global reduced-motion CSS block is a second guard).
+  const px = useMotionValue(0);
+  const py = useMotionValue(0);
+  const bgX = useSpring(useTransform(px, [-0.5, 0.5], [-18, 18]), { stiffness: 60, damping: 20 });
+  const bgY = useSpring(useTransform(py, [-0.5, 0.5], [-12, 12]), { stiffness: 60, damping: 20 });
+  const markX = useSpring(useTransform(px, [-0.5, 0.5], [12, -12]), { stiffness: 50, damping: 22 });
+
+  function handlePointer(e: React.PointerEvent<HTMLDivElement>) {
+    if (reduce) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    px.set((e.clientX - r.left) / r.width - 0.5);
+    py.set((e.clientY - r.top) / r.height - 0.5);
+  }
 
   return (
-    <footer className="bg-bg-base border-t border-border-main py-16">
-      <div className="max-w-[1200px] mx-auto px-6">
-        <Reveal>
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-10 pb-12 border-b border-border-subtle">
-            {/* Brand column */}
-            <div className="md:col-span-5 space-y-5">
-              <a href="#" aria-label="CredChain home" className="inline-flex items-center">
-                <Logo wordmarkSize="sm" />
-              </a>
-              <p className="font-sans text-txt-secondary scale-sm leading-relaxed max-w-xs">
-                Verified credentials on Solana. Tamper-proof, sub-second, and
-                owned by the people who earn them — never the institution.
-              </p>
-              {/* Live network status pill */}
-              <div className="inline-flex items-center gap-2 rounded-full border border-border-subtle bg-bg-surface px-3 py-1.5">
-                <span className="relative flex h-2 w-2">
-                  <span className="absolute inline-flex h-full w-full rounded-full bg-hash-green opacity-75 animate-ping" />
-                  <span className="relative inline-flex h-2 w-2 rounded-full bg-hash-green" />
-                </span>
-                <span className="font-mono text-[10px] text-txt-muted uppercase tracking-wider">
-                  Devnet operational
-                </span>
-              </div>
+    <footer className="bg-bg-base">
+      {/* ---- Link section — flush full-width, no card, no border ---- */}
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-10 pt-20 pb-10">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-x-8 gap-y-12">
+          {/* Brand column — leads the row (inspo's first column). */}
+          <div className="col-span-2 md:col-span-1 space-y-4">
+            <div className="font-mono text-[11px] font-normal uppercase tracking-[0.2em] text-txt-muted">
+              CredChain
             </div>
-
-            {/* Link columns */}
-            {columns.map((col) => (
-              <div key={col.heading} className="md:col-span-2 space-y-3">
-                <div className="font-mono text-[10px] text-txt-muted uppercase tracking-[0.18em]">
-                  {col.heading}
-                </div>
-                <ul className="space-y-2.5">
-                  {col.links.map((link) => (
-                    <li key={link.name}>
-                      {link.to ? (
-                        <button
-                          onClick={() => navigate(link.to!)}
-                          className="font-sans text-[13px] text-txt-secondary hover:text-txt-primary transition-colors cursor-pointer"
-                        >
-                          {link.name}
-                        </button>
-                      ) : (
-                        <a
-                          href={link.href}
-                          className="font-sans text-[13px] text-txt-secondary hover:text-txt-primary transition-colors"
-                        >
-                          {link.name}
-                        </a>
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
+            <p className="font-sans text-[13px] text-txt-secondary leading-relaxed max-w-[220px]">
+              Verified credentials on Solana — tamper-proof, sub-second, and
+              owned by the people who earn them.
+            </p>
           </div>
-        </Reveal>
 
-        {/* Bottom bar */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-8 text-[13px] text-txt-muted font-sans">
-          <div>© 2026 CredChain. Secured by Solana.</div>
-          <div className="flex items-center gap-6">
-            <a href="#" className="hover:text-txt-primary transition-colors">
-              Privacy Principles
-            </a>
-            <div className="flex items-center gap-4 text-txt-muted">
-              <a
-                href="https://github.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-txt-primary transition-colors"
-                aria-label="GitHub"
-              >
-                <Github className="w-5 h-5" />
-              </a>
-              <a
-                href="https://x.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="hover:text-txt-primary transition-colors flex items-center justify-center"
-                aria-label="X (formerly Twitter)"
-              >
-                <XIcon />
-              </a>
+          {columns.map((col) => (
+            <div key={col.heading} className="space-y-4">
+              <div className="font-mono text-[11px] font-normal uppercase tracking-[0.2em] text-txt-muted">
+                {col.heading}
+              </div>
+              <ul className="space-y-3">
+                {col.links.map((link) => (
+                  <li key={link.name}>
+                    <FooterItem link={link} />
+                  </li>
+                ))}
+              </ul>
             </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ---- Divider ---- */}
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-10">
+        <div className="h-px bg-border-subtle" />
+      </div>
+
+      {/* ---- Bottom bar ---- */}
+      <div className="max-w-[1400px] mx-auto px-6 lg:px-10 py-6">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="font-sans text-[12px] text-txt-muted">
+            © 2026 CredChain. All rights reserved.
+          </div>
+          <div className="flex items-center gap-6 font-sans text-[12px] text-txt-muted">
+            <a href="#" className="hover:text-txt-primary transition-colors">Privacy Policy</a>
+            <a href="#" className="hover:text-txt-primary transition-colors">Terms</a>
           </div>
         </div>
+      </div>
+
+      {/* ---- Wordmark signature — giant, edge-bleeding, bottom-cropped, over the
+           landing waves + a blueprint grid. This is the footer's visual sig. ---- */}
+      <div
+        ref={sectionRef}
+        onPointerMove={handlePointer}
+        className="relative h-[24vw] min-h-[150px] max-h-[300px] overflow-hidden select-none"
+        aria-hidden
+      >
+        {/* Landing background image (same sol-waves used by Hero), dimmed. */}
+        <motion.div
+          className="pointer-events-none absolute inset-0 bg-no-repeat bg-cover bg-center scale-110 opacity-40"
+          style={{
+            backgroundImage: "url('/sol-waves.png')",
+            x: reduce ? 0 : bgX,
+            y: reduce ? 0 : bgY,
+          }}
+        />
+        {/* Blueprint grid — fine white lines, ~5% opacity, architectural feel. */}
+        <motion.div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            x: reduce ? 0 : bgX,
+            y: reduce ? 0 : bgY,
+            backgroundImage:
+              "linear-gradient(to right, rgba(255,255,255,0.06) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.06) 1px, transparent 1px)",
+            backgroundSize: "44px 44px",
+          }}
+        />
+        {/* Top fade so the grid/waves emerge from the bottom bar cleanly. */}
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-16"
+          style={{ background: "linear-gradient(180deg, var(--bg-base), transparent)" }}
+        />
+        {/* The wordmark: oversized, pinned to the bottom, bleeding off L/R edges
+            so it's cropped by the viewport — cyan→purple to match the brand. */}
+        <motion.div
+          className="absolute inset-x-0 bottom-0 flex justify-center"
+          style={{ x: reduce ? 0 : markX }}
+        >
+          <span
+            className="font-display font-bold leading-[0.8] tracking-tighter whitespace-nowrap translate-y-[0.14em] bg-gradient-to-r from-[#00F0FF] to-[#9D00FF] bg-clip-text text-transparent"
+            style={{ fontSize: "clamp(120px, 21vw, 340px)" }}
+          >
+            CredChain
+          </span>
+        </motion.div>
       </div>
     </footer>
   );
