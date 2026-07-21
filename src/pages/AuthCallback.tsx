@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import Logo from "../components/Logo";
+import Loader from "../components/motion/Loader";
 
 // Google OAuth return leg. The backend redirects here with ?token=<jwt> (user is
 // reconstructed from JWT claims by AuthContext) or ?error=<code>.
@@ -50,10 +51,11 @@ export default function AuthCallback() {
           </Link>
         </div>
       ) : (
-        <div className="flex items-center gap-3 text-sm text-txt-secondary font-mono">
-          <div className="animate-spin rounded-full h-5 w-5 border-t-2 border-b-2 border-brand-purple" />
-          Completing sign-in…
-        </div>
+        <Loader
+          size="md"
+          title="Completing sign-in…"
+          subtitle="Verifying your credentials and preparing your workspace."
+        />
       )}
     </div>
   );

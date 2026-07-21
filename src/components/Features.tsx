@@ -1,48 +1,53 @@
-import { Brain, QrCode, Archive, Sparkles, FileSpreadsheet } from "lucide-react";
+import { Brain, QrCode, Archive, Sparkles, FileSpreadsheet, Coins } from "lucide-react";
 import FadeIn from "./FadeIn";
-import { Stagger, StaggerItem } from "./motion/Reveal";
-import SpotlightCard from "./motion/SpotlightCard";
+import SpotlightCards, { SpotlightItem } from "./motion/SpotlightCards";
 
-interface Feature {
-  icon: React.ReactNode;
-  title: string;
-  body: string;
-  tag: string;
-  /** Column span at lg breakpoint. 1 = standard, 2 = wide. */
-  span?: 1 | 2;
-}
-
-const features: Feature[] = [
+// CredChain's core capabilities, mapped onto the SpotlightCards grid (kokonutui
+// 3D-tilt + focus-dim). Per-item colors are decorative accents drawn from the
+// role palette (candidate cyan / issuer green / verifier amber) + brand purple,
+// never arbitrary hues — so the grid still reads as CredChain.
+const FEATURE_ITEMS: SpotlightItem[] = [
   {
-    icon: <Brain className="w-6 h-6 text-txt-muted" strokeWidth={1.75} />,
+    icon: Brain,
     title: "AI Document Processing",
-    body: "Transcripts and diplomas parsed by multi-modal AI. Clean structured output, ready for institutional approval.",
-    tag: "// VISION AI",
+    description:
+      "Transcripts and diplomas parsed by multi-modal AI into clean, structured output ready for institutional approval.",
+    color: "#7C3AED", // brand-purple
   },
   {
-    icon: <QrCode className="w-6 h-6 text-txt-muted" strokeWidth={1.75} />,
+    icon: QrCode,
     title: "QR Verification",
-    body: "Scan any CredChain QR code for instant on-chain confirmation. Zero registration required.",
-    tag: "// LIGHTNING RESPONSE",
+    description:
+      "Scan any CredChain QR code for instant on-chain confirmation. Zero registration required.",
+    color: "#F59E0B", // role-verifier amber
   },
   {
-    icon: <Archive className="w-6 h-6 text-txt-muted" strokeWidth={1.75} />,
+    icon: Archive,
     title: "Credential Vault",
-    body: "Every verified credential in one place. Owned by the candidate, not the institution.",
-    tag: "// CANDIDATE PORTFOLIO",
+    description:
+      "Every verified credential in one place — owned by the candidate, not the institution.",
+    color: "#00D4FF", // role-candidate cyan
   },
   {
-    icon: <Sparkles className="w-7 h-7 text-txt-muted" strokeWidth={1.5} />,
+    icon: Sparkles,
     title: "AI Resume Builder",
-    body: "Build a verified resume directly from your on-chain credentials. Every claim backed by institutional proof. Share with a link or export to PDF.",
-    tag: "// PROVEN COMPETENCY",
-    span: 2,
+    description:
+      "Build a verified resume straight from your on-chain credentials. Every claim backed by institutional proof.",
+    color: "#00D4FF", // role-candidate cyan
   },
   {
-    icon: <FileSpreadsheet className="w-6 h-6 text-txt-muted" strokeWidth={1.75} />,
+    icon: FileSpreadsheet,
     title: "Employer Verification",
-    body: "Bulk verify candidate pools via CSV upload. Instant results against the Solana ledger.",
-    tag: "// REDUCED FRICTION",
+    description:
+      "Bulk-verify candidate pools via CSV upload. Instant results against the Solana ledger.",
+    color: "#F59E0B", // role-verifier amber
+  },
+  {
+    icon: Coins,
+    title: "Earn From Skills",
+    description:
+      "A verified profile unlocks paid bounties held in Solana escrow, released on delivery.",
+    color: "#10B981", // role-issuer green
   },
 ];
 
@@ -50,56 +55,14 @@ export default function Features() {
   return (
     <section id="features" className="py-24 md:py-[120px] bg-bg-base overflow-hidden">
       <div className="max-w-[1200px] mx-auto px-6">
-        {/* Section header */}
-        <div className="text-left mb-16 max-w-2xl">
-          <FadeIn>
-            <div className="border-l-2 border-brand-purple pl-3 font-mono text-[11px] tracking-[0.18em] text-txt-muted uppercase mb-4">
-              CORE CAPABILITIES
-            </div>
-            <h2 className="font-display text-txt-primary scale-2xl font-bold">
-              Built for the entire credential lifecycle.
-            </h2>
-          </FadeIn>
-        </div>
-
-        {/* 3x2 grid — row 2 has one wide card spanning two columns. The span
-            class must live on the grid child (StaggerItem), not the inner card,
-            or the grid never honors it. */}
-        <Stagger className="grid grid-cols-1 lg:grid-cols-3 gap-6" gap={0.07}>
-          {features.map((f, i) => (
-            <StaggerItem
-              key={i}
-              className={f.span === 2 ? "lg:col-span-2" : ""}
-            >
-              <FeatureCard feature={f} />
-            </StaggerItem>
-          ))}
-        </Stagger>
+        <FadeIn>
+          <SpotlightCards
+            eyebrow="Core capabilities"
+            heading="Built for the entire credential lifecycle."
+            items={FEATURE_ITEMS}
+          />
+        </FadeIn>
       </div>
     </section>
-  );
-}
-
-function FeatureCard({ feature }: { feature: Feature }) {
-  return (
-    <SpotlightCard
-      className="bg-bg-surface border border-border-main rounded-xl p-8 h-full flex flex-col justify-between min-h-[220px] transition-colors duration-200 hover:border-border-strong"
-    >
-      <div className="relative z-10 space-y-4 text-left">
-        {/* Icon tile — brightens on hover so the card reads as enterable. */}
-        <span className="inline-flex items-center justify-center w-11 h-11 rounded-lg bg-brand-purple-soft border border-border-subtle text-txt-secondary transition-colors duration-200 group-hover/spot:text-brand-purple group-hover/spot:border-brand-purple/40">
-          {feature.icon}
-        </span>
-        <h3 className="font-display text-txt-primary text-[18px] font-bold">
-          {feature.title}
-        </h3>
-        <p className="font-sans text-txt-secondary scale-sm leading-relaxed max-w-xl">
-          {feature.body}
-        </p>
-      </div>
-      <div className="relative z-10 font-mono text-[10px] text-txt-muted mt-6 uppercase tracking-wider">
-        {feature.tag}
-      </div>
-    </SpotlightCard>
   );
 }

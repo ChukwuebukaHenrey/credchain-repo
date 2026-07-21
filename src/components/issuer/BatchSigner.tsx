@@ -8,6 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { UploadCloud, Copy, Check, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { bulkUploadCredentials, getBulkJob } from "../../services/api";
 import { getSocket } from "../../services/socket";
+import FileUpload from "../motion/FileUpload";
 
 const SAMPLE_CSV = `title,recipientEmail
 B.Eng Computer Engineering,emeka@example.com
@@ -92,17 +93,16 @@ export default function BatchSigner({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // FileUpload hands us the validated File once its progress animation completes.
+  // We read it into csvText — the existing submit flow (Sign & submit batch) is
+  // unchanged, so the file picker and the paste box remain interchangeable.
+  const handleFileUpload = async (file: File) => {
     try {
       const text = await file.text();
       setCsvText(text);
       setUploadError(null);
     } catch {
       setUploadError("Could not read that file — paste the CSV contents instead.");
-    } finally {
-      e.target.value = ""; // allow re-selecting the same file
     }
   };
 
@@ -157,12 +157,17 @@ export default function BatchSigner({
     <div className="space-y-4">
       {/* CSV input card */}
       <div className="bg-bg-surface border border-border-main rounded-lg p-6 space-y-4">
-        <label className="block border border-dashed border-border-main rounded-md p-6 text-center hover:border-role-issuer hover:bg-role-issuer-soft transition-colors cursor-pointer flex flex-col items-center justify-center gap-2">
-          <UploadCloud className="w-8 h-8 text-role-issuer" strokeWidth={1.5} />
-          <div className="text-sm font-semibold text-txt-primary">Drop or select a roster CSV</div>
-          <div className="text-[11px] font-mono text-txt-muted">columns: title,recipientEmail · up to 500 rows per batch</div>
-          <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} />
-        </label>
+        <FileUpload
+          acceptedFileTypes={["text/csv", "application/vnd.ms-excel", ".csv"]}
+          maxFileSize={2 * 1024 * 1024}
+          uploadDelay={900}
+          hint="columns: title,recipientEmail · up to 500 rows per batch"
+          onUploadSuccess={handleFileUpload}
+          onUploadError={(err) => setUploadError(err.message)}
+        />
+        <div className="text-center text-[11px] font-mono text-txt-muted -mt-1">
+          Drop a roster CSV to load it below — review, then sign &amp; submit.
+        </div>
 
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
