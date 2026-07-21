@@ -1,5 +1,6 @@
 import { ShieldCheck, Zap, Coins } from "lucide-react";
 import FadeIn from "./FadeIn";
+import Counter from "./motion/Counter";
 
 // Community / trust-at-scale section — inspired by Solana's "Join a community of
 // millions" (inspo 3/4): oversized gradient stat numbers over a flowing-wave
@@ -80,9 +81,11 @@ export default function ProofSection() {
           {STATS.map((s, i) => (
             <FadeIn key={s.label} delay={i * 80}>
               <div className="text-left">
-                <div className="font-display font-bold scale-3xl leading-none bg-gradient-to-br from-[#00D4FF] via-[#7C3AED] to-[#9D00FF] bg-clip-text text-transparent">
-                  {s.value}
-                </div>
+                <Counter
+                  value={s.value}
+                  delay={i * 140}
+                  className="block font-display font-bold scale-3xl leading-none bg-gradient-to-br from-[#00D4FF] via-[#7C3AED] to-[#9D00FF] bg-clip-text text-transparent tabular-nums"
+                />
                 <div className="text-txt-primary font-semibold text-sm mt-3">{s.label}</div>
                 <div className="text-txt-muted font-mono text-[11px] uppercase tracking-wider mt-1">{s.sub}</div>
               </div>
