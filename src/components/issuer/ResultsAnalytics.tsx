@@ -5,6 +5,7 @@
 // aggregates for the demo, mirroring monorepo's ISSUER_REPUTATION fixture.
 import { useState } from "react";
 import { TrendingUp, Gauge, Clock, BarChart3, Megaphone, Copy, Check, ShieldCheck } from "lucide-react";
+import BarChart from "../motion/BarChart";
 
 // Monorepo mock/data.js → ISSUER_REPUTATION (same values).
 const ISSUER_REPUTATION = {
@@ -23,7 +24,6 @@ const ISSUER_REPUTATION = {
 
 export default function ResultsAnalytics() {
   const r = ISSUER_REPUTATION;
-  const maxP = Math.max(...r.trend.map((t) => t.placements));
   const [copied, setCopied] = useState(false);
 
   const embed = `<a href="https://credchain.io/registry">Verified on CredChain — ${Math.round(r.placementRate * 100)}% placement</a>`;
@@ -75,19 +75,12 @@ export default function ResultsAnalytics() {
         </div>
 
         <p className="mt-5 text-xs font-medium text-txt-secondary">Placements / month</p>
-        <div className="mt-3 flex items-end gap-3" style={{ height: 110 }}>
-          {r.trend.map((t) => (
-            <div key={t.month} className="flex flex-1 flex-col items-center justify-end gap-1.5">
-              <span className="text-[11px] font-semibold tabular-nums text-txt-secondary">{t.placements}</span>
-              <div
-                className="w-full rounded-t-md bg-brand-purple"
-                style={{ height: `${(t.placements / maxP) * 80}px` }}
-                title={String(t.placements)}
-              />
-              <span className="text-[10px] text-txt-muted">{t.month}</span>
-            </div>
-          ))}
-        </div>
+        <BarChart
+          className="mt-3"
+          data={r.trend}
+          xKey="month"
+          bars={[{ dataKey: "placements", label: "Placements", color: "var(--brand-purple)" }]}
+        />
       </div>
 
       {/* Marketing-ready quote */}

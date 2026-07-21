@@ -70,7 +70,7 @@ interface DashboardShellProps {
   children: ReactNode;
 }
 
-const ROLE_ACCENT: Record<DashboardRole, { text: string; border: string; bg: string; ring: string; dot: string; label: string }> = {
+const ROLE_ACCENT: Record<DashboardRole, { text: string; border: string; bg: string; ring: string; dot: string; label: string; avatarRing: string }> = {
   candidate: {
     text: "text-role-candidate",
     border: "border-role-candidate",
@@ -78,6 +78,7 @@ const ROLE_ACCENT: Record<DashboardRole, { text: string; border: string; bg: str
     ring: "focus:border-role-candidate",
     dot: "bg-role-candidate",
     label: "CANDIDATE",
+    avatarRing: "from-role-candidate via-brand-purple to-brand-purple-dim",
   },
   issuer: {
     text: "text-role-issuer",
@@ -86,6 +87,7 @@ const ROLE_ACCENT: Record<DashboardRole, { text: string; border: string; bg: str
     ring: "focus:border-role-issuer",
     dot: "bg-role-issuer",
     label: "ISSUER",
+    avatarRing: "from-role-issuer via-brand-purple to-brand-purple-dim",
   },
   verifier: {
     text: "text-role-verifier",
@@ -94,6 +96,7 @@ const ROLE_ACCENT: Record<DashboardRole, { text: string; border: string; bg: str
     ring: "focus:border-role-verifier",
     dot: "bg-role-verifier",
     label: "VERIFIER",
+    avatarRing: "from-role-verifier via-brand-purple to-brand-purple-dim",
   },
 };
 
@@ -447,14 +450,23 @@ export default function DashboardShell({
               </button>
 
               {profileOpen && (
-                <div className="absolute right-0 top-full mt-2 w-56 bg-bg-surface border border-border-main rounded-lg shadow-xl shadow-black/30 overflow-hidden page-enter z-50">
-                  <div className="px-4 py-3 border-b border-border-subtle">
-                    <div className="text-sm font-medium text-txt-primary truncate">{user.name}</div>
-                    {user.subtitle && (
-                      <div className="text-[11px] font-mono text-txt-muted truncate mt-0.5">{user.subtitle}</div>
-                    )}
+                <div className="absolute right-0 top-full mt-2 w-64 origin-top-right bg-bg-surface/95 backdrop-blur-sm border border-border-main rounded-2xl shadow-xl shadow-black/30 p-2 page-enter z-50">
+                  {/* Identity header — gradient avatar ring echoing the kokonutui menu */}
+                  <div className="flex items-center gap-3 px-2 py-2 mb-1">
+                    <span className={`h-10 w-10 rounded-full bg-gradient-to-br ${accent.avatarRing} p-0.5 flex-shrink-0`}>
+                      <span className="block h-full w-full rounded-full overflow-hidden bg-bg-base">
+                        {avatarBox("w-full h-full", "rounded-full")}
+                      </span>
+                    </span>
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-txt-primary truncate leading-tight">{user.name}</div>
+                      {user.subtitle && (
+                        <div className="text-[11px] font-mono text-txt-muted truncate mt-0.5 leading-tight">{user.subtitle}</div>
+                      )}
+                    </div>
                   </div>
-                  <div className="py-1.5">
+
+                  <div className="space-y-1">
                     {showProfileMenu && (
                       <button
                         type="button"
@@ -462,24 +474,28 @@ export default function DashboardShell({
                           setProfileOpen(false);
                           navigate("/admin");
                         }}
-                        className="group w-full flex items-center gap-2.5 px-4 py-2 text-sm text-txt-secondary hover:text-txt-primary hover:bg-bg-elevated transition-colors cursor-pointer"
+                        className="group w-full flex items-center gap-2.5 rounded-xl border border-transparent px-3 py-2.5 text-sm text-txt-secondary hover:text-txt-primary hover:border-border-main hover:bg-bg-elevated transition-all duration-200 cursor-pointer"
                       >
                         <ShieldCheck className="w-4 h-4 icon-anim" strokeWidth={1.75} />
-                        Admin
+                        <span className="font-medium">Admin</span>
                       </button>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setProfileOpen(false);
-                        handleLogout();
-                      }}
-                      className="group w-full flex items-center gap-2.5 px-4 py-2 text-sm text-txt-secondary hover:text-hash-red hover:bg-bg-elevated transition-colors cursor-pointer"
-                    >
-                      <LogOut className="w-4 h-4 icon-anim" strokeWidth={1.75} />
-                      Log out
-                    </button>
                   </div>
+
+                  {/* Gradient separator */}
+                  <div className="my-2 h-px bg-gradient-to-r from-transparent via-border-strong to-transparent" />
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      handleLogout();
+                    }}
+                    className="group w-full flex items-center gap-2.5 rounded-xl border border-transparent bg-hash-red/10 px-3 py-2.5 text-sm text-hash-red hover:border-hash-red/30 hover:bg-hash-red/20 transition-all duration-200 cursor-pointer"
+                  >
+                    <LogOut className="w-4 h-4 icon-anim" strokeWidth={1.75} />
+                    <span className="font-medium">Log out</span>
+                  </button>
                 </div>
               )}
             </div>
