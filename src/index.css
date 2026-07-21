@@ -200,6 +200,15 @@ body {
 }
 .animate-pulse-custom { animation: pulseCustom 2s ease-in-out infinite; }
 
+/* Typewriter caret — steady blink. Only rendered when motion is allowed (the
+   component drops the caret entirely under prefers-reduced-motion), and the
+   global reduced-motion block below neutralizes it as a second guard. */
+@keyframes caretBlink {
+  0%, 45% { opacity: 1; }
+  55%, 100% { opacity: 0; }
+}
+.caret-blink { animation: caretBlink 1.05s steps(1) infinite; }
+
 /* Brand/institution logo chip — logos are filled white, so pin a dark chip
    behind them in BOTH themes to keep them visible. */
 .brand-logo-chip { background-color: #17102a !important; }

@@ -10,6 +10,7 @@ import {
 } from "motion/react";
 import { Play, ShieldCheck, Check, Radio, Loader2 } from "lucide-react";
 import FadeIn from "./FadeIn";
+import Typewriter from "./motion/Typewriter";
 
 export default function Hero() {
   const navigate = useNavigate();
@@ -111,7 +112,12 @@ export default function Hero() {
               <h1 className="font-display text-txt-primary tracking-tight scale-3xl md:scale-4xl font-bold leading-none mb-6">
                 Prove your skills.
                 <br />
-                <span className="text-role-candidate">Get hired.</span>
+                <span className="text-role-candidate">
+                  Get{" "}
+                  <Typewriter
+                    words={["hired.", "noticed.", "vouched for.", "paid."]}
+                  />
+                </span>
                 <br />
                 Start earning.
               </h1>
