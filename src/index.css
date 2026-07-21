@@ -209,6 +209,27 @@ body {
 }
 .caret-blink { animation: caretBlink 1.05s steps(1) infinite; }
 
+/* Ghost-button fill — a transparent/outline button whose fill sweeps in from
+   the left on hover and retracts on leave. The fill color is set per button via
+   the --btn-fill custom property (defaults to the primary brand purple). The
+   ::before sits behind the label (z-index -1 + isolate) so no markup changes
+   are needed. Pair with .btn-fill-primary (white label on hover) or
+   .btn-fill-role (dark label, for the bright role accents). */
+.btn-fill { position: relative; overflow: hidden; isolation: isolate; }
+.btn-fill::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: var(--btn-fill, var(--brand-purple));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.btn-fill:hover::before { transform: scaleX(1); }
+.btn-fill-primary:hover { color: #fff; border-color: transparent; }
+.btn-fill-role:hover { color: var(--bg-base); border-color: transparent; }
+
 /* Brand/institution logo chip — logos are filled white, so pin a dark chip
    behind them in BOTH themes to keep them visible. */
 .brand-logo-chip { background-color: #17102a !important; }

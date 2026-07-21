@@ -16,7 +16,6 @@ import WhoItsFor from "./components/WhoItsFor";
 import Features from "./components/Features";
 import CTASection from "./components/CTASection";
 import FloatingCTA from "./components/FloatingCTA";
-import TrustStrip from "./components/TrustStrip";
 import Footer from "./components/Footer";
 import RoleSelection from "./pages/RoleSelection";
 import Login from "./pages/Login";
@@ -42,7 +41,6 @@ function Landing() {
         <WhoItsFor />
         <Features />
         <CTASection />
-        <TrustStrip />
       </main>
       <Footer />
       <FloatingCTA />

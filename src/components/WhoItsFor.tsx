@@ -13,7 +13,8 @@ interface RoleCard {
   route: string;
   topBorderClass: string;
   textColorClass: string;
-  btnHoverBgClass: string;
+  /** Role accent color (CSS var) used for the hover fill. */
+  accent: string;
   btnBorderClass: string;
   tagTextClass: string;
 }
@@ -35,7 +36,7 @@ const cards: RoleCard[] = [
     route: "/signup/candidate",
     topBorderClass: "border-t-role-candidate",
     textColorClass: "text-role-candidate",
-    btnHoverBgClass: "hover:bg-role-candidate-soft",
+    accent: "var(--role-candidate)",
     btnBorderClass: "border-role-candidate",
     tagTextClass: "text-role-candidate",
   },
@@ -55,7 +56,7 @@ const cards: RoleCard[] = [
     route: "/signup/issuer",
     topBorderClass: "border-t-role-issuer",
     textColorClass: "text-role-issuer",
-    btnHoverBgClass: "hover:bg-role-issuer-soft",
+    accent: "var(--role-issuer)",
     btnBorderClass: "border-role-issuer",
     tagTextClass: "text-role-issuer",
   },
@@ -75,7 +76,7 @@ const cards: RoleCard[] = [
     route: "/signup/verifier",
     topBorderClass: "border-t-role-verifier",
     textColorClass: "text-role-verifier",
-    btnHoverBgClass: "hover:bg-role-verifier-soft",
+    accent: "var(--role-verifier)",
     btnBorderClass: "border-role-verifier",
     tagTextClass: "text-role-verifier",
   },
@@ -142,7 +143,8 @@ export default function WhoItsFor() {
                 <div className="pt-6 border-t border-border-subtle w-full">
                   <button
                     onClick={() => navigate(card.route)}
-                    className={`w-full py-2.5 px-4 bg-transparent border ${card.btnBorderClass} ${card.btnHoverBgClass} text-txt-primary rounded-md font-semibold text-sm transition-colors cursor-pointer text-center`}
+                    style={{ ["--btn-fill" as string]: card.accent }}
+                    className={`btn-fill btn-fill-role w-full py-2.5 px-4 bg-transparent border ${card.btnBorderClass} text-txt-primary rounded-md font-semibold text-sm transition-colors cursor-pointer text-center`}
                   >
                     {card.btnText}
                   </button>

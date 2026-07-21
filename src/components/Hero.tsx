@@ -135,7 +135,7 @@ export default function Hero() {
                 </button>
                 <a
                   href="#how-it-works"
-                  className="bg-transparent border border-border-main hover:border-border-strong text-txt-primary rounded-md px-6 py-3 font-semibold text-sm transition-colors flex items-center gap-2 cursor-pointer"
+                  className="btn-fill btn-fill-primary bg-transparent border border-border-main text-txt-primary rounded-md px-6 py-3 font-semibold text-sm transition-colors flex items-center gap-2 cursor-pointer"
                 >
                   <Play className="w-4 h-4" />
                   <span>See How It Works</span>

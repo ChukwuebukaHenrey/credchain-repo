@@ -1,6 +1,22 @@
 import { useNavigate } from "react-router-dom";
-import { Play, ArrowRight, ShieldCheck, Check } from "lucide-react";
+import { Play, ArrowRight, ShieldCheck, Lock, Award } from "lucide-react";
 import { Reveal } from "./motion/Reveal";
+import Counter from "./motion/Counter";
+
+/** Real network figures + trust badges, merged in from the retired TrustStrip
+ *  so the closing CTA's right card carries live proof, not filler. */
+const STATS = [
+  { value: "42,000+", label: "Credentials Issued" },
+  { value: "8,700+", label: "Verified Candidates" },
+  { value: "120+", label: "Institutions Onboarded" },
+  { value: "0.38s", label: "Avg Verification Time" },
+];
+
+const BADGES = [
+  { icon: Lock, text: "SOC 2 Compliant" },
+  { icon: Award, text: "Solana Verified Builder" },
+  { icon: ShieldCheck, text: "Zero PII On-Chain" },
+];
 
 /**
  * Closing CTA — two-up colored blocks (bitcoin.com's structure, CredChain's
@@ -50,7 +66,7 @@ export default function CTASection() {
                   </button>
                   <button
                     onClick={() => navigate("/login?demo=true")}
-                    className="inline-flex items-center justify-center gap-2 bg-transparent border border-border-main hover:border-border-strong text-txt-primary rounded-full px-6 py-3 font-semibold text-sm transition-colors cursor-pointer"
+                    className="btn-fill btn-fill-primary inline-flex items-center justify-center gap-2 bg-transparent border border-border-main text-txt-primary rounded-full px-6 py-3 font-semibold text-sm transition-colors cursor-pointer"
                   >
                     <Play className="w-4 h-4" />
                     <span>Try a demo</span>
@@ -60,7 +76,9 @@ export default function CTASection() {
             </div>
           </Reveal>
 
-          {/* Right — dark proof motif panel */}
+          {/* Right — trust-at-scale panel. Carries the real network figures
+              (merged in from the old TrustStrip) so the closing card restates
+              the product's promise with live proof instead of filler. */}
           <Reveal delay={0.1}>
             <div
               className="relative overflow-hidden rounded-2xl border border-border-main p-10 md:p-12 h-full flex flex-col justify-between min-h-[320px]"
@@ -68,43 +86,34 @@ export default function CTASection() {
             >
               <div className="flex items-center gap-2 font-mono text-[11px] text-txt-muted uppercase tracking-wider">
                 <ShieldCheck className="w-4 h-4 text-hash-green" />
-                <span>Anchored on Solana</span>
+                <span>Trusted at scale · anchored on Solana</span>
               </div>
 
-              {/* Big verified stamp motif */}
-              <div className="relative z-10 py-8">
-                <div className="inline-flex items-center gap-3 rounded-xl border border-hash-green/30 bg-hash-green/5 px-5 py-4">
-                  <span className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-hash-green/15 text-hash-green">
-                    <Check className="w-6 h-6" strokeWidth={2.75} />
-                  </span>
-                  <div className="text-left">
-                    <div className="font-display font-bold text-txt-primary text-[18px] leading-tight">
-                      Verified match
-                    </div>
-                    <div className="font-mono text-[11px] text-txt-muted">
-                      cryptographic proof · zero PII
+              {/* Real network figures — 2×2, count up on scroll-in. */}
+              <div className="relative z-10 grid grid-cols-2 gap-x-8 gap-y-7 py-8">
+                {STATS.map((s) => (
+                  <div key={s.label} className="text-left">
+                    <Counter
+                      value={s.value}
+                      className="block font-display font-bold text-txt-primary text-3xl md:text-[34px] leading-none tracking-tight tabular-nums"
+                    />
+                    <div className="font-mono text-[11px] text-txt-muted uppercase tracking-wider mt-2">
+                      {s.label}
                     </div>
                   </div>
-                </div>
+                ))}
               </div>
 
-              <div className="grid grid-cols-3 gap-3 relative z-10">
-                {[
-                  ["NO FEES", "var(--role-candidate)"],
-                  ["NO PII", "var(--role-issuer)"],
-                  ["< 1s", "var(--role-verifier)"],
-                ].map(([label, color]) => (
-                  <div
-                    key={label}
-                    className="rounded-lg border border-border-subtle bg-bg-surface/40 px-3 py-3 text-center"
+              {/* Trust badges. */}
+              <div className="relative z-10 flex flex-wrap items-center gap-2 pt-6 border-t border-border-subtle">
+                {BADGES.map((b) => (
+                  <span
+                    key={b.text}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-bg-surface/50 px-3 py-1.5 font-mono text-[11px] text-txt-secondary tracking-wide"
                   >
-                    <div
-                      className="font-display font-bold text-[15px]"
-                      style={{ color }}
-                    >
-                      {label}
-                    </div>
-                  </div>
+                    <b.icon className="w-3.5 h-3.5 text-hash-green" strokeWidth={2} />
+                    {b.text}
+                  </span>
                 ))}
               </div>
             </div>
