@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   motion,
@@ -8,7 +8,7 @@ import {
   useSpring,
   useMotionValue,
 } from "motion/react";
-import { Play, ShieldCheck, Check, Radio, Loader2 } from "lucide-react";
+import { Play, ShieldCheck, Check, Hexagon } from "lucide-react";
 import FadeIn from "./FadeIn";
 import Typewriter from "./motion/Typewriter";
 
@@ -181,69 +181,13 @@ interface ProofBlockCardProps {
   issuedDate: string;
 }
 
-const HEX = "0123456789abcdef";
-
-/** Scramble the alphanumeric chars of a signature, preserving separators like "…". */
-function scramble(sig: string): string {
-  return sig
-    .split("")
-    .map((c) => (/[a-zA-Z0-9]/.test(c) ? HEX[Math.floor(Math.random() * HEX.length)] : c))
-    .join("");
-}
-
 /**
- * Drives the hero's signature moment: the proof "resolves". The TX signature
- * scrambles through hex for a beat while authenticity reads VERIFYING…, then
- * settles to the real signature and pops to VERIFIED MATCH — looping quietly so
- * the card feels alive without demanding attention.
- *
- * Returns the settled state immediately (no interval) under reduced motion.
+ * Hero centerpiece — a single verified credential, read top-down like a person
+ * would: WHO (candidate + the credential they earned), THEN the trust stamp
+ * (verified on Solana), THEN the on-chain proof metadata for the skeptics.
+ * Fully static — no looping scramble, no pulsing/spinning icons. The one bit of
+ * life is a soft green ring on the verified stamp; everything else holds still.
  */
-function useProofResolve(realSig: string) {
-  const reduce = useReducedMotion();
-  const [display, setDisplay] = useState(realSig);
-  const [verified, setVerified] = useState(true);
-
-  useEffect(() => {
-    if (reduce) {
-      setDisplay(realSig);
-      setVerified(true);
-      return;
-    }
-
-    let scrambleTimer: ReturnType<typeof setInterval> | undefined;
-    let settleTimer: ReturnType<typeof setTimeout> | undefined;
-    let cycleTimer: ReturnType<typeof setTimeout> | undefined;
-    let cancelled = false;
-
-    const runCycle = () => {
-      if (cancelled) return;
-      setVerified(false);
-      // Scramble for ~1.1s, updating a few times a second.
-      scrambleTimer = setInterval(() => setDisplay(scramble(realSig)), 70);
-      settleTimer = setTimeout(() => {
-        clearInterval(scrambleTimer);
-        setDisplay(realSig);
-        setVerified(true);
-      }, 1100);
-      // Idle in the verified state, then re-run.
-      cycleTimer = setTimeout(runCycle, 6000);
-    };
-
-    // Small initial delay so the card is settled on first paint, then animates.
-    cycleTimer = setTimeout(runCycle, 1400);
-
-    return () => {
-      cancelled = true;
-      clearInterval(scrambleTimer);
-      clearTimeout(settleTimer);
-      clearTimeout(cycleTimer);
-    };
-  }, [realSig, reduce]);
-
-  return { display, verified };
-}
-
 function ProofBlockCard({
   txSignature,
   slot,
@@ -252,86 +196,80 @@ function ProofBlockCard({
   issuer,
   issuedDate,
 }: ProofBlockCardProps) {
-  const reduce = useReducedMotion();
-  const { display, verified } = useProofResolve(txSignature);
+  const initials = candidate
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() || "")
+    .join("");
 
-  const rows: Array<[string, React.ReactNode]> = [
-    ["TX SIGNATURE", <span className={`font-mono text-[13px] select-all break-all transition-colors duration-200 ${verified ? "text-txt-primary" : "text-role-candidate"}`}>{display}</span>],
-    ["SLOT", <span className="font-mono text-[13px] text-txt-primary font-medium">{slot}</span>],
-    ["CREDENTIAL TYPE", <span className="font-sans text-[13px] text-txt-primary font-medium">{credentialType}</span>],
-    ["CANDIDATE", <span className="font-sans text-[13px] text-txt-primary font-medium">{candidate}</span>],
-    ["AUTHORIZED ISSUER", <span className="font-sans text-[13px] text-txt-primary font-medium">{issuer}</span>],
-    ["ISSUED DATE", <span className="font-sans text-[13px] text-txt-primary font-medium">{issuedDate}</span>],
+  // Compact on-chain proof rows — the evidence, de-emphasized under the identity.
+  const proof: Array<[string, React.ReactNode]> = [
+    ["Issuer", <span className="font-sans text-[13px] text-txt-primary font-medium text-right">{issuer}</span>],
+    ["Issued", <span className="font-sans text-[13px] text-txt-primary font-medium text-right">{issuedDate}</span>],
+    ["Slot", <span className="font-mono text-[12px] text-txt-secondary text-right">{slot}</span>],
+    ["Tx", <span className="font-mono text-[12px] text-txt-secondary select-all break-all text-right">{txSignature}</span>],
   ];
 
   return (
-    // Clean glass card — subtle border + soft shadow (no heavy purple glow/ring).
-    // The border warms to hash-green the instant the proof resolves.
-    <div
-      className="bg-bg-surface/80 backdrop-blur-xl border rounded-xl p-6 w-full max-w-[480px] shadow-[0_8px_24px_-12px_rgba(0,0,0,0.5)] transition-colors duration-300 hover:border-border-strong"
-      style={{ borderColor: verified ? "color-mix(in srgb, var(--hash-green) 40%, var(--border-main))" : "var(--border-main)" }}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between pb-5 border-b border-border-main mb-5">
-        <div className="flex items-center gap-2">
-          <Radio className="w-3 h-3 text-hash-green animate-pulse-custom" aria-hidden />
-          <span className="font-mono text-[11px] text-txt-muted uppercase tracking-wider font-semibold">
-            ON-CHAIN CREDENTIAL PROOF
-          </span>
+    <div className="bg-bg-surface/80 backdrop-blur-xl border border-border-main rounded-xl w-full max-w-[420px] shadow-[0_8px_28px_-12px_rgba(0,0,0,0.55)] overflow-hidden transition-colors duration-300 hover:border-border-strong">
+      {/* Top rail — network context, quiet */}
+      <div className="flex items-center justify-between px-6 py-3 border-b border-border-subtle bg-bg-base/40">
+        <span className="font-mono text-[10px] text-txt-muted uppercase tracking-[0.16em]">
+          Verified Credential
+        </span>
+        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-role-candidate">
+          <Hexagon className="w-3 h-3" strokeWidth={2} />
+          Solana
+        </span>
+      </div>
+
+      {/* Identity — who earned what */}
+      <div className="px-6 pt-6 flex items-start gap-4">
+        <div className="flex-shrink-0 w-12 h-12 rounded-full bg-role-candidate-soft border border-border-subtle flex items-center justify-center font-display font-bold text-role-candidate text-lg">
+          {initials}
         </div>
-        <div className="border border-border-main rounded-sm px-2 py-1 text-[11px] font-mono text-role-candidate">
-          Solana Devnet
+        <div className="min-w-0">
+          <div className="font-display font-bold text-txt-primary text-[17px] leading-tight truncate">
+            {candidate}
+          </div>
+          <div className="font-sans text-[13px] text-txt-secondary leading-snug mt-0.5">
+            {credentialType}
+          </div>
         </div>
       </div>
 
-      {/* Body */}
-      <div className="space-y-4">
-        {rows.map(([label, value], i) => (
-          <div key={i} className="grid grid-cols-12 gap-2 items-start">
-            <div className="col-span-5 font-mono text-[10px] text-txt-muted uppercase tracking-wider pt-0.5">
+      {/* Verified stamp — the trust moment, held (soft static ring, no pulse) */}
+      <div className="px-6 mt-5">
+        <div className="flex items-center gap-3 rounded-lg border border-hash-green/30 bg-hash-green/5 px-4 py-3">
+          <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-hash-green/15 text-hash-green ring-4 ring-hash-green/10">
+            <Check className="w-5 h-5" strokeWidth={2.75} />
+          </span>
+          <div className="leading-tight">
+            <div className="font-display font-bold text-hash-green text-[14px]">Verified match</div>
+            <div className="font-mono text-[10px] text-txt-muted">Cryptographic proof · zero PII</div>
+          </div>
+        </div>
+      </div>
+
+      {/* Proof metadata — the evidence, compact */}
+      <div className="px-6 py-5 mt-1 space-y-2.5">
+        {proof.map(([label, value], i) => (
+          <div key={i} className="flex items-baseline justify-between gap-4">
+            <span className="font-mono text-[10px] text-txt-muted uppercase tracking-wider flex-shrink-0">
               {label}
-            </div>
-            <div className="col-span-7">{value}</div>
+            </span>
+            <span className="min-w-0 truncate">{value}</span>
           </div>
         ))}
-
-        {/* Authenticity Result — flips between VERIFYING… and VERIFIED MATCH as
-            the proof resolves. The verified state pops in for emphasis. */}
-        <div className="grid grid-cols-12 gap-2 items-center pt-2">
-          <div className="col-span-5 font-mono text-[10px] text-txt-muted uppercase tracking-wider">
-            AUTHENTICITY
-          </div>
-          <div className="col-span-7 font-sans text-[13px] font-bold flex items-center gap-1.5">
-            {verified ? (
-              <motion.span
-                key="verified"
-                className="flex items-center gap-1.5 text-hash-green"
-                initial={reduce ? false : { scale: 0.6, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
-                transition={{ type: "spring", stiffness: 520, damping: 16 }}
-              >
-                <Check className="w-4 h-4" strokeWidth={2.5} />
-                <span>VERIFIED MATCH</span>
-              </motion.span>
-            ) : (
-              <span className="flex items-center gap-1.5 text-role-candidate">
-                <Loader2 className="w-4 h-4 animate-spin" strokeWidth={2.5} />
-                <span>VERIFYING…</span>
-              </span>
-            )}
-          </div>
-        </div>
       </div>
 
-      {/* Footer */}
-      <div className="flex items-center justify-between mt-6 pt-5 border-t border-border-main">
-        <div className="flex items-center gap-1.5 font-mono text-[11px] text-txt-muted">
+      {/* Footer — hash provenance */}
+      <div className="flex items-center justify-between px-6 py-3 border-t border-border-subtle bg-bg-base/40">
+        <span className="inline-flex items-center gap-1.5 font-mono text-[10px] text-txt-muted">
           <ShieldCheck className="w-3.5 h-3.5" />
-          <span>Memo-anchored</span>
-        </div>
-        <div className="font-mono text-[11px] text-hash-green">
-          HASH: SHA-256
-        </div>
+          Memo-anchored
+        </span>
+        <span className="font-mono text-[10px] text-hash-green">SHA-256</span>
       </div>
     </div>
   );
