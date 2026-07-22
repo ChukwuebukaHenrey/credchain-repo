@@ -15,6 +15,7 @@ _archive/
 # Internal integration notes and pitch deck — kept locally, not in VCS.
 BACKEND_INTEGRATION.md
 ROADMAP.md
+PROJECT_NOTES.md
 *.pptx
 
 
