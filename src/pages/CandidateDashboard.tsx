@@ -615,6 +615,7 @@ export default function CandidateDashboard() {
         onSearchChange={setSearchQuery}
         searchPlaceholder={`Search ${activeTab}…`}
         notificationCount={unreadNotifsCount}
+        onMessagesClick={() => setActiveTab("messages")}
         onAvatarSelect={handleAvatarSelect}
         onLogout={handleLogout}
       >

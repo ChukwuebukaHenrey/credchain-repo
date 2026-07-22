@@ -78,7 +78,7 @@ export default function IssuerDashboard() {
   }>(() => {
     const uploaded = localStorage.getItem("credchain_profile_photo");
     return {
-      name: "FUTO Registrar",
+      name: "FUTO",
       subtitle: "Whitelisted Issuer · futo.ng",
       initials: "FU",
       // Institutional identity: uploaded photo wins, else the FUTO logo.
@@ -93,7 +93,7 @@ export default function IssuerDashboard() {
   useEffect(() => {
     localStorage.setItem("credchain_role", "issuer");
     if (!authUser) return;
-    const name = authUser.name || authUser.institution || "FUTO Registrar";
+    const name = authUser.name || authUser.institution || "FUTO";
     const email = authUser.email || "registrar@futo.ng";
     const domain = email.split("@")[1] || "futo.ng";
     const initials = name.split(/\s+/).slice(0, 2).map((w: string) => w[0]?.toUpperCase() || "").join("");
@@ -344,6 +344,7 @@ export default function IssuerDashboard() {
       onSearchChange={setSearchQuery}
       searchPlaceholder="Search matric or records…"
       notificationCount={pendingCount}
+      onMessagesClick={() => setActiveTab("requests")}
       onAvatarSelect={handleAvatarSelect}
       onLogout={handleLogout}
       topbarRightExtra={
